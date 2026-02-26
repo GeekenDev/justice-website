@@ -16,6 +16,7 @@ type DbFileRow = {
   notes: string | null;
   original_hash: string | null;
   current_hash: string | null;
+  diff_scan_id?: string | number | null;
 };
 
 type DatasetRow = {
@@ -313,7 +314,7 @@ function clampPage(value: number | undefined, fallback: number) {
 function pushFlagFilter(
   where: string[],
   values: unknown[],
-  column: "altered" | "hidden" | "deleted",
+  column: string,
   mode: "all" | "yes" | "no" | undefined,
 ) {
   if (mode === "yes") {
@@ -420,19 +421,19 @@ export async function searchFiles(
 
   if (hasSearchQuery) {
     values.push(`${searchQuery}%`);
-    where.push(`efta_id ILIKE $${values.length}`);
+    where.push(`f.efta_id ILIKE $${values.length}`);
   } else {
-    where.push(`(parent_efta_id IS NULL OR btrim(parent_efta_id) = '')`);
+    where.push(`(f.parent_efta_id IS NULL OR btrim(f.parent_efta_id) = '')`);
   }
 
   if (dataset) {
     values.push(dataset);
-    where.push(`dataset = $${values.length}`);
+    where.push(`f.dataset = $${values.length}`);
   }
 
-  pushFlagFilter(where, values, "altered", alteredMode);
-  pushFlagFilter(where, values, "hidden", hiddenMode);
-  pushFlagFilter(where, values, "deleted", deletedMode);
+  pushFlagFilter(where, values, "f.altered", alteredMode);
+  pushFlagFilter(where, values, "f.hidden", hiddenMode);
+  pushFlagFilter(where, values, "f.deleted", deletedMode);
 
   const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
   const isDefaultBrowseQuery =
@@ -451,7 +452,7 @@ export async function searchFiles(
       total = Number(toNumber(summaryResult.rows[0]?.total) || 0);
     } else {
       const totalResult = await client.query<{ total: string | number }>(
-        `SELECT COUNT(*) AS total FROM files ${whereSql}`,
+        `SELECT COUNT(*) AS total FROM files f ${whereSql}`,
         values,
       );
       total = Number(toNumber(totalResult.rows[0]?.total) || 0);
@@ -464,10 +465,31 @@ export async function searchFiles(
 
     const rowsResult = await client.query<DbFileRow>(
       `
-      SELECT ${DB_FILE_COLUMNS}
-      FROM files
+      SELECT
+        f.efta_id,
+        f.parent_efta_id,
+        f.dataset,
+        f.file_path,
+        f.page_count,
+        f.hidden,
+        f.deleted,
+        f.altered,
+        f.shows_in_search,
+        f.last_checked::text AS last_checked,
+        f.doj_website_page,
+        f.notes,
+        f.original_hash,
+        f.current_hash,
+        c.diff_scan_id
+      FROM files f
+      LEFT JOIN (
+        SELECT efta_id, MAX(diff_scan_id) AS diff_scan_id
+        FROM changes
+        GROUP BY efta_id
+      ) c
+        ON c.efta_id = f.efta_id
       ${whereSql}
-      ORDER BY efta_id ASC
+      ORDER BY f.efta_id ASC
       LIMIT $${pagedValues.length - 1}
       OFFSET $${pagedValues.length}
     `,

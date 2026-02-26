@@ -20,6 +20,7 @@ type FileRow = {
   notes: string | null;
   original_hash: string | null;
   current_hash: string | null;
+  diff_scan_id?: string | number | null;
 };
 
 type StatsPayload = {
@@ -117,6 +118,17 @@ function buildCurrentDojLink(row: FileRow) {
     return null;
   }
   return `https://www.justice.gov/epstein/files/DataSet%20${datasetNumber}/${row.efta_id}.pdf`;
+}
+
+function buildChangesLink(row: FileRow) {
+  if (row.diff_scan_id === null || row.diff_scan_id === undefined) {
+    return null;
+  }
+  const scanId = String(row.diff_scan_id).trim();
+  if (!scanId) {
+    return null;
+  }
+  return `https://change-tracker.geeken.dev/?run=run-${encodeURIComponent(scanId)}`;
 }
 
 export default function HomePage() {
@@ -392,6 +404,7 @@ export default function HomePage() {
                   <th>Dataset</th>
                   <th>Original File</th>
                   <th>Current DOJ Link</th>
+                  <th>Changes</th>
                   <th>Pages</th>
                   <th>Status</th>
                 </tr>
@@ -400,6 +413,7 @@ export default function HomePage() {
                 {search.rows.map((row) => {
                   const originalLink = buildOriginalFileLink(row);
                   const currentDojLink = buildCurrentDojLink(row);
+                  const changesLink = buildChangesLink(row);
                   return (
                     <tr
                       key={row.efta_id}
@@ -445,6 +459,21 @@ export default function HomePage() {
                           "-"
                         )}
                       </td>
+                      <td>
+                        {changesLink ? (
+                          <a
+                            href={changesLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="table-link"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            View Changes
+                          </a>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td>{formatNumber(row.page_count)}</td>
                       <td>
                         <div className="badge-row">
@@ -477,6 +506,7 @@ export default function HomePage() {
             {search.rows.map((row) => {
               const originalLink = buildOriginalFileLink(row);
               const currentDojLink = buildCurrentDojLink(row);
+              const changesLink = buildChangesLink(row);
               const statusLabel = row.deleted
                 ? "Deleted"
                 : row.altered
@@ -549,6 +579,18 @@ export default function HomePage() {
                         DOJ
                       </span>
                     )}
+                    {changesLink ? (
+                      <a
+                        href={changesLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="home-mobile-action-btn"
+                        aria-label={`View changes for ${row.efta_id}`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        Changes <span aria-hidden="true">↗</span>
+                      </a>
+                    ) : null}
                   </div>
                 </article>
               );
