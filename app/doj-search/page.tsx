@@ -11,6 +11,7 @@ type DOJSearchResult = {
   fileName: string | null;
   highlight: string | null;
   fileSize: number | null;
+  documentStatus?: "Original" | "Altered" | "Deleted";
   sources: {
     original_link: string | null;
     doj_link: string | null;
@@ -56,24 +57,18 @@ function renderHighlightedBits(value: string | null) {
   });
 }
 
-function formatFileSize(bytes: number | null) {
-  if (typeof bytes !== "number" || Number.isNaN(bytes)) {
-    return "-";
-  }
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
+function getDocumentStatus(result: DOJSearchResult) {
+  return result.documentStatus ?? "Original";
+}
 
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1024;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
+function getDocumentStatusBadgeClass(status: "Original" | "Altered" | "Deleted") {
+  if (status === "Deleted") {
+    return "badge-danger";
   }
-
-  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+  if (status === "Altered") {
+    return "badge-altered";
+  }
+  return "badge-ok";
 }
 
 function withPdfZoom(url: string | null) {
@@ -127,9 +122,13 @@ function NoteIcon() {
 export default function DOJSearchPage() {
   const restoreKey = "restore:doj-search";
   const queryInputRef = useRef<HTMLInputElement | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const isFetchingMoreRef = useRef(false);
   const [keys, setKeys] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DOJSearchResponse | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -194,6 +193,11 @@ export default function DOJSearchPage() {
       }
       if (parsed.data && typeof parsed.data === "object") {
         setData(parsed.data);
+        if (typeof parsed.data.keys === "string" && parsed.data.keys.trim()) {
+          setActiveQuery(parsed.data.keys.trim());
+        }
+      } else if (typeof parsed.keys === "string" && parsed.keys.trim()) {
+        setActiveQuery(parsed.keys.trim());
       }
       if (
         typeof parsed.scrollY === "number" &&
@@ -205,19 +209,6 @@ export default function DOJSearchPage() {
       // Non-blocking.
     }
   }, []);
-
-  const pageButtons = useMemo(() => {
-    if (!data?.totalPages) {
-      return [];
-    }
-    const start = Math.max(1, page - 2);
-    const end = Math.min(data.totalPages, page + 2);
-    const buttons: number[] = [];
-    for (let p = start; p <= end; p += 1) {
-      buttons.push(p);
-    }
-    return buttons;
-  }, [data?.totalPages, page]);
 
   useEffect(() => {
     if (!showSuggestions) {
@@ -257,15 +248,29 @@ export default function DOJSearchPage() {
     };
   }, [keys, showSuggestions]);
 
-  async function runSearch(nextPage = page, queryOverride?: string) {
-    const trimmedKeys = (queryOverride ?? keys).trim();
+  async function runSearch(
+    nextPage = 1,
+    queryOverride?: string,
+    options?: { append?: boolean },
+  ) {
+    const append = Boolean(options?.append);
+    const trimmedKeys = (
+      queryOverride ?? (append ? activeQuery : keys)
+    ).trim();
     if (!trimmedKeys) {
       setError("Search query is required.");
       return;
     }
+    if (append && (isFetchingMoreRef.current || loadingMore)) {
+      return;
+    }
 
-    setPage(nextPage);
-    setLoading(true);
+    if (append) {
+      isFetchingMoreRef.current = true;
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const nextQuery = new URLSearchParams({
@@ -279,11 +284,34 @@ export default function DOJSearchPage() {
       if (!responseWithVoter.ok) {
         throw new Error(payload.error || "DOJ search request failed");
       }
-      setData(payload);
+      if (append) {
+        setData((prev) => {
+          if (!prev) {
+            return payload;
+          }
+          const seen = new Set(prev.results.map((item) => item.url));
+          const appended = payload.results.filter((item) => !seen.has(item.url));
+          const mergedResults = [...prev.results, ...appended];
+          return {
+            ...payload,
+            results: mergedResults,
+            resultCount: mergedResults.length,
+          };
+        });
+      } else {
+        setData(payload);
+      }
+      setPage(nextPage);
+      setActiveQuery(trimmedKeys);
     } catch (err) {
       setError(String(err));
     } finally {
-      setLoading(false);
+      if (append) {
+        setLoadingMore(false);
+        isFetchingMoreRef.current = false;
+      } else {
+        setLoading(false);
+      }
     }
   }
 
@@ -313,6 +341,39 @@ export default function DOJSearchPage() {
       input.focus();
     }
   }
+
+  useEffect(() => {
+    if (
+      !data ||
+      data.blocked ||
+      loading ||
+      loadingMore ||
+      !activeQuery ||
+      typeof data.totalPages !== "number" ||
+      page >= data.totalPages
+    ) {
+      return;
+    }
+
+    const target = loadMoreRef.current;
+    if (!target) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void runSearch(page + 1, activeQuery, { append: true });
+        }
+      },
+      {
+        root: null,
+        rootMargin: "500px 0px",
+        threshold: 0,
+      },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [activeQuery, data, loading, loadingMore, page]);
 
   useEffect(() => {
     if (!previewUrl && !mobileViewerUrl) {
@@ -757,7 +818,7 @@ export default function DOJSearchPage() {
               <thead>
                 <tr>
                   <th>File</th>
-                  <th className="nowrap">Size</th>
+                  <th className="nowrap">Status</th>
                   <th>Highlight</th>
                   <th className="nowrap">Upvote</th>
                 </tr>
@@ -778,7 +839,14 @@ export default function DOJSearchPage() {
                       </a>
                     </td>
                     <td className="nowrap">
-                      {formatFileSize(result.fileSize)}
+                      {(() => {
+                        const status = getDocumentStatus(result);
+                        return (
+                          <span className={`badge ${getDocumentStatusBadgeClass(status)}`}>
+                            {status}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="mono">
                       {renderHighlightedBits(result.highlight)}
@@ -837,9 +905,14 @@ export default function DOJSearchPage() {
                   {result.fileName ?? result.title}
                 </a>
                 <div className="mobile-result-meta">
-                  <span className="mono nowrap">
-                    Size: {formatFileSize(result.fileSize)}
-                  </span>
+                  {(() => {
+                    const status = getDocumentStatus(result);
+                    return (
+                      <span className={`badge ${getDocumentStatusBadgeClass(status)}`}>
+                        {status}
+                      </span>
+                    );
+                  })()}
                   <div className="action-buttons">
                     <button
                       type="button"
@@ -875,33 +948,18 @@ export default function DOJSearchPage() {
               <p className="empty">No parsed results found.</p>
             )}
           </div>
-          <div className="pagination">
-            <button
-              onClick={() => void runSearch(Math.max(1, page - 1))}
-              disabled={loading || page <= 1}
-            >
-              Previous
-            </button>
-            {pageButtons.map((p) => (
-              <button
-                key={p}
-                className={`page-number-btn${p === page ? " active-page" : ""}`}
-                onClick={() => void runSearch(p)}
-                disabled={loading || p === page}
-              >
-                {p}
-              </button>
-            ))}
-            <button
-              onClick={() => void runSearch(page + 1)}
-              disabled={
-                loading ||
-                (typeof data.totalPages === "number" && page >= data.totalPages)
-              }
-            >
-              Next
-            </button>
-          </div>
+          {!data.blocked && typeof data.totalPages === "number" && page < data.totalPages && (
+            <div ref={loadMoreRef} className="results-infinite-trigger" aria-hidden="true" />
+          )}
+          {loadingMore && <p className="results-infinite-status">Loading more results...</p>}
+          {!loadingMore &&
+            !loading &&
+            !data.blocked &&
+            typeof data.totalPages === "number" &&
+            page >= data.totalPages &&
+            data.results.length > 0 && (
+              <p className="results-infinite-status">End of results.</p>
+            )}
         </section>
       )}
 

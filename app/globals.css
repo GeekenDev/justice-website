@@ -353,6 +353,17 @@ tr:hover td {
   padding: 0.8rem;
 }
 
+.results-infinite-trigger {
+  height: 1px;
+}
+
+.results-infinite-status {
+  margin: 0.35rem 0.9rem 0.95rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+  text-align: center;
+}
+
 .pagination .page-number-btn {
   background: transparent;
   border-color: var(--line);

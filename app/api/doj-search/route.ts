@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getDojSearchResultPage,
   getDojSearchBookmarkCounts,
   getFileSourceInputsByEftaIds,
   getDojSearchUserBookmarks,
@@ -23,6 +24,7 @@ type DoiSearchResult = {
   fileName: string | null;
   highlight: string | null;
   fileSize: number | null;
+  documentStatus: "Original" | "Altered" | "Deleted";
   sources: {
     original_link: string | null;
     doj_link: string | null;
@@ -139,6 +141,7 @@ function parseResults(html: string): DoiSearchResult[] {
       fileName: null,
       highlight: null,
       fileSize: null,
+      documentStatus: "Original",
       sources: toSourceLinks(sourceInfo.eftaId, sourceInfo.dataset, null),
       upvotes: 0,
       bookmarkCount: 0,
@@ -201,6 +204,7 @@ function parseElasticResults(payload: unknown): {
       highlight: highlightValue,
       fileSize:
         typeof hit._source?.fileSize === "number" ? hit._source.fileSize : null,
+      documentStatus: "Original",
       sources: toSourceLinks(
         sourceInfo.eftaId,
         sourceInfo.dataset,
@@ -239,6 +243,41 @@ export async function GET(request: NextRequest) {
   target.searchParams.set("keys", keys);
   target.searchParams.set("page", String(page));
   const voterId = request.headers.get("x-voter-id")?.trim() ?? "";
+
+  const cached = await getDojSearchResultPage({ query: keys, page });
+  if (cached && typeof cached === "object") {
+    const cachedPayload = cached as {
+      results?: DoiSearchResult[];
+      [key: string]: unknown;
+    };
+    const cachedResults = Array.isArray(cachedPayload.results)
+      ? cachedPayload.results
+      : [];
+    const urls = cachedResults.map((result) => result.url).filter(Boolean);
+    const [votes, bookmarkCounts, userVotes, userBookmarks] = await Promise.all([
+      getDojSearchVotes(urls),
+      getDojSearchBookmarkCounts(urls),
+      getDojSearchUserVotes(urls, voterId),
+      getDojSearchUserBookmarks(urls, voterId),
+    ]);
+    const resultsWithSignals = cachedResults.map((result) => ({
+      ...result,
+      upvotes: votes[result.url] ?? 0,
+      bookmarkCount: bookmarkCounts[result.url] ?? 0,
+      userVoted: userVotes[result.url] ?? false,
+      userBookmarked: userBookmarks[result.url] ?? false,
+    }));
+    console.log(
+      `[doj-search] cache-hit query="${keys}" page=${page} results=${resultsWithSignals.length}`,
+    );
+    return NextResponse.json({
+      ...cachedPayload,
+      keys,
+      page,
+      results: resultsWithSignals,
+      resultCount: resultsWithSignals.length,
+    });
+  }
 
   try {
     const cookie = process.env.DOJ_SEARCH_COOKIE?.trim() || DEFAULT_DOJ_COOKIE;
@@ -285,12 +324,21 @@ export async function GET(request: NextRequest) {
           return result;
         }
         const sourceFromDb = sourceLookups[eftaId];
-        if (!sourceFromDb?.dataset || !sourceFromDb?.file_path) {
+        if (!sourceFromDb) {
           return result;
         }
+        const documentStatus: DoiSearchResult["documentStatus"] = sourceFromDb.deleted
+          ? "Deleted"
+          : sourceFromDb.altered
+            ? "Altered"
+            : "Original";
         return {
           ...result,
-          sources: toSourceLinks(eftaId, sourceFromDb.dataset, sourceFromDb.file_path),
+          documentStatus,
+          sources:
+            sourceFromDb.dataset && sourceFromDb.file_path
+              ? toSourceLinks(eftaId, sourceFromDb.dataset, sourceFromDb.file_path)
+              : result.sources,
         };
       });
       const urls = enrichedResults.map((r) => r.url);
@@ -332,6 +380,9 @@ export async function GET(request: NextRequest) {
         page,
         payload: responsePayload,
       });
+      console.log(
+        `[doj-search] remote-fetch(elastic) query="${keys}" page=${page} results=${resultsWithVotes.length}`,
+      );
       return NextResponse.json(responsePayload);
     }
 
@@ -374,8 +425,14 @@ export async function GET(request: NextRequest) {
       page,
       payload: responsePayload,
     });
+    console.log(
+      `[doj-search] remote-fetch(html) query="${keys}" page=${page} results=${resultsWithVotes.length}`,
+    );
     return NextResponse.json(responsePayload);
   } catch (error) {
+    console.log(
+      `[doj-search] remote-fetch(error) query="${keys}" page=${page} error=${String(error)}`,
+    );
     return NextResponse.json(
       {
         keys,

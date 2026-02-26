@@ -37,6 +37,9 @@ type StatsRow = {
 type DOJSearchSuggestionRow = {
   query_text: string;
 };
+type DOJSearchResultPageRow = {
+  result_page: unknown;
+};
 
 type DOJSearchResultVoteRow = {
   result_url: string;
@@ -106,6 +109,9 @@ type FileSourceLookupRow = {
   efta_id: string;
   dataset: string | null;
   file_path: string | null;
+  altered: boolean;
+  deleted: boolean;
+  hidden: boolean;
 };
 type DeletedDocReportRow = {
   efta_id: string;
@@ -528,13 +534,22 @@ export async function getFileById(eftaId: string, debug?: QueryCacheDebug) {
 export async function getFileSourceInputsByEftaIds(eftaIds: string[]) {
   const normalized = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
   if (normalized.length === 0) {
-    return {} as Record<string, { dataset: string | null; file_path: string | null }>;
+    return {} as Record<
+      string,
+      {
+        dataset: string | null;
+        file_path: string | null;
+        altered: boolean;
+        deleted: boolean;
+        hidden: boolean;
+      }
+    >;
   }
 
   return withClient(async (client) => {
     const result = await client.query<FileSourceLookupRow>(
       `
-      SELECT efta_id, dataset, file_path
+      SELECT efta_id, dataset, file_path, altered, deleted, hidden
       FROM files
       WHERE efta_id = ANY($1::text[])
       `,
@@ -542,11 +557,23 @@ export async function getFileSourceInputsByEftaIds(eftaIds: string[]) {
     );
 
     return result.rows.reduce<
-      Record<string, { dataset: string | null; file_path: string | null }>
+      Record<
+        string,
+        {
+          dataset: string | null;
+          file_path: string | null;
+          altered: boolean;
+          deleted: boolean;
+          hidden: boolean;
+        }
+      >
     >((acc, row) => {
       acc[row.efta_id] = {
         dataset: row.dataset,
         file_path: row.file_path,
+        altered: row.altered,
+        deleted: row.deleted,
+        hidden: row.hidden,
       };
       return acc;
     }, {});
@@ -1934,6 +1961,35 @@ export async function getTopUpvotedDeletedDocs(limit = 100) {
       vote_count: Number(row.vote_count) || 0,
       last_voted_at: row.last_voted_at,
     }));
+  });
+}
+
+export async function getDojSearchResultPage(params: {
+  query: string;
+  page: number;
+}) {
+  const query = params.query.trim();
+  const page = Math.max(1, Math.floor(params.page));
+  if (!query) {
+    return null;
+  }
+
+  return withClient(async (client) => {
+    await ensureDojSearchResultPagesTable(client);
+    const result = await client.query<DOJSearchResultPageRow>(
+      `
+      SELECT result_page
+      FROM doj_search_result_pages
+      WHERE query_text = $1
+        AND page_number = $2
+      LIMIT 1
+      `,
+      [query, page],
+    );
+    if (result.rows.length === 0) {
+      return null;
+    }
+    return result.rows[0].result_page ?? null;
   });
 }
 
