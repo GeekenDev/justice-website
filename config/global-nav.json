@@ -1,0 +1,35 @@
+{
+  "mobileTitle": "Navigation",
+  "initiallyExpandedGroups": ["DOJ Tools"],
+  "items": [
+    {
+      "href": "/overview",
+      "label": "Overview"
+    },
+    {
+      "href": "/archive-downloads",
+      "label": "Archive Downloads"
+    },
+    {
+      "label": "DOJ Tools",
+      "children": [
+        {
+          "href": "/doj-search",
+          "label": "DOJ Search"
+        },
+        {
+          "href": "/deleted-docs-browser",
+          "label": "Deleted Docs Browser"
+        },
+        {
+          "href": "/deleted-docs-top-upvoted",
+          "label": "Top Deleted Upvotes"
+        },
+        {
+          "href": "/api",
+          "label": "API Docs"
+        }
+      ]
+    }
+  ]
+}

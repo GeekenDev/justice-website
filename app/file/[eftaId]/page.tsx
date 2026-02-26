@@ -79,9 +79,23 @@ export default async function FileDetailsPage({ params }: FilePageProps) {
 
   const originalLink = buildOriginalFileLink(record.file);
   const currentDojLink = buildCurrentDojLink(record.file);
+  const statusLabel = record.file.deleted
+    ? "Deleted"
+    : record.file.altered
+      ? "Altered"
+      : record.file.hidden
+        ? "Hidden"
+        : "Active";
+  const statusClassName = record.file.deleted
+    ? "badge-danger"
+    : record.file.altered
+      ? "badge-accent"
+      : record.file.hidden
+        ? "badge-muted"
+        : "badge-ok";
 
   return (
-    <main className="app-shell detail-page">
+    <main className="app-shell detail-page file-detail-page">
       <div className="glow glow-left" />
       <div className="glow glow-right" />
 
@@ -91,6 +105,15 @@ export default async function FileDetailsPage({ params }: FilePageProps) {
         <p className="subtitle">
           Full metadata and relationships for this record.
         </p>
+        <div className="badge-row file-detail-summary-row">
+          <span className={`badge ${statusClassName}`}>{statusLabel}</span>
+          <span className="badge badge-muted">
+            Dataset {record.file.dataset ?? "-"}
+          </span>
+          <span className="badge badge-accent">
+            Pages {formatNumber(record.file.page_count)}
+          </span>
+        </div>
       </section>
 
       <section className="panel detail-nav">
@@ -100,7 +123,7 @@ export default async function FileDetailsPage({ params }: FilePageProps) {
       </section>
 
       <section className="detail-grid">
-        <article className="panel">
+        <article className="panel file-metadata-panel">
           <header className="results-head">
             <h2>Metadata</h2>
           </header>
@@ -195,7 +218,7 @@ export default async function FileDetailsPage({ params }: FilePageProps) {
           </div>
         </article>
 
-        <article className="panel">
+        <article className="panel file-relationships-panel">
           <header className="results-head">
             <h2>Relationships</h2>
           </header>

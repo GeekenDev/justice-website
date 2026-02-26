@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { extractEftaId } from "@/lib/client/efta";
-import { isMobileSafari } from "@/lib/client/is-mobile-safari";
-import { openMobilePdfPreservingPage } from "@/lib/client/open-mobile-pdf";
 
 type DOJSearchResult = {
   title: string;
@@ -85,6 +83,18 @@ function withPdfZoom(url: string | null) {
   return `${url}${url.includes("#") ? "&" : "#"}page=1&view=FitH&zoom=page-width&scrollbar=1&pagemode=none`;
 }
 
+function isMobileDocumentViewerTarget() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return false;
+  }
+  const ua = navigator.userAgent || "";
+  const hasTouch = navigator.maxTouchPoints > 0;
+  const likelyMobileUa =
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  const smallViewport = window.matchMedia("(max-width: 960px)").matches;
+  return smallViewport && (hasTouch || likelyMobileUa);
+}
+
 function BookmarkIcon({ saved }: { saved: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="bookmark-icon">
@@ -133,11 +143,15 @@ export default function DOJSearchPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState<string>("");
   const [previewResultUrl, setPreviewResultUrl] = useState<string | null>(null);
+  const [mobileViewerUrl, setMobileViewerUrl] = useState<string | null>(null);
+  const [mobileViewerTitle, setMobileViewerTitle] = useState<string>("");
   const [showNoteSidebar, setShowNoteSidebar] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteLoading, setNoteLoading] = useState(false);
   const [noteSaving, setNoteSaving] = useState(false);
-  const [bookmarkNotes, setBookmarkNotes] = useState<Record<string, string>>({});
+  const [bookmarkNotes, setBookmarkNotes] = useState<Record<string, string>>(
+    {},
+  );
   const [pendingScrollY, setPendingScrollY] = useState<number | null>(null);
 
   useEffect(() => {
@@ -181,7 +195,10 @@ export default function DOJSearchPage() {
       if (parsed.data && typeof parsed.data === "object") {
         setData(parsed.data);
       }
-      if (typeof parsed.scrollY === "number" && Number.isFinite(parsed.scrollY)) {
+      if (
+        typeof parsed.scrollY === "number" &&
+        Number.isFinite(parsed.scrollY)
+      ) {
         setPendingScrollY(Math.max(0, Math.floor(parsed.scrollY)));
       }
     } catch {
@@ -298,7 +315,7 @@ export default function DOJSearchPage() {
   }
 
   useEffect(() => {
-    if (!previewUrl) {
+    if (!previewUrl && !mobileViewerUrl) {
       return;
     }
 
@@ -306,15 +323,17 @@ export default function DOJSearchPage() {
       if (event.key === "Escape") {
         setPreviewUrl(null);
         setPreviewResultUrl(null);
+        setMobileViewerUrl(null);
+        setMobileViewerTitle("");
       }
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [previewUrl]);
+  }, [mobileViewerUrl, previewUrl]);
 
   useEffect(() => {
-    if (!previewUrl || typeof document === "undefined") {
+    if ((!previewUrl && !mobileViewerUrl) || typeof document === "undefined") {
       return;
     }
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
@@ -331,7 +350,7 @@ export default function DOJSearchPage() {
     return () => {
       document.body.style.overflow = originalOverflow;
     };
-  }, [previewUrl]);
+  }, [mobileViewerUrl, previewUrl]);
 
   useEffect(() => {
     if (!previewResultUrl) {
@@ -350,7 +369,9 @@ export default function DOJSearchPage() {
     let cancelled = false;
     async function loadNoteForPreview() {
       try {
-        const params = new URLSearchParams({ url: currentResultUrl }).toString();
+        const params = new URLSearchParams({
+          url: currentResultUrl,
+        }).toString();
         const response = await fetch(`/api/doj-search/bookmark?${params}`, {
           headers: { "x-voter-id": voterId },
         });
@@ -385,7 +406,9 @@ export default function DOJSearchPage() {
         }
         const payload = (await response.json()) as { totalBookmarks?: number };
         setBookmarkTotal(
-          typeof payload.totalBookmarks === "number" ? payload.totalBookmarks : 0,
+          typeof payload.totalBookmarks === "number"
+            ? payload.totalBookmarks
+            : 0,
         );
       } catch {
         // Keep search usable even if bookmark total fails to load.
@@ -397,11 +420,13 @@ export default function DOJSearchPage() {
   function openPreview(result: DOJSearchResult) {
     const sourceUrl = result.sources.original_link ?? result.url;
     const eftaId = extractEftaId(result.fileName ?? result.title ?? result.url);
-    if (isMobileSafari() && sourceUrl) {
-      openMobilePdfPreservingPage(eftaId ? `/documents/${encodeURIComponent(eftaId)}` : sourceUrl, {
-        key: restoreKey,
-        value: { keys, page, data, scrollY: window.scrollY },
-      });
+    if (sourceUrl && isMobileDocumentViewerTarget()) {
+      setMobileViewerTitle(result.fileName ?? result.title ?? "PDF Viewer");
+      setMobileViewerUrl(
+        eftaId
+          ? `/documents/${encodeURIComponent(eftaId)}`
+          : withPdfZoom(sourceUrl),
+      );
       return;
     }
     setPreviewTitle(result.fileName ?? result.title);
@@ -411,7 +436,7 @@ export default function DOJSearchPage() {
 
   const previewResult =
     previewResultUrl && data
-      ? data.results.find((result) => result.url === previewResultUrl) ?? null
+      ? (data.results.find((result) => result.url === previewResultUrl) ?? null)
       : null;
   const noteKey = previewResultUrl ?? "";
   const savedNote = noteKey ? (bookmarkNotes[noteKey] ?? "") : "";
@@ -529,7 +554,10 @@ export default function DOJSearchPage() {
         };
       });
       if (typeof payload.note === "string") {
-        setBookmarkNotes((prev) => ({ ...prev, [result.url]: payload.note ?? "" }));
+        setBookmarkNotes((prev) => ({
+          ...prev,
+          [result.url]: payload.note ?? "",
+        }));
       }
     } catch (err) {
       setError(String(err));
@@ -671,7 +699,9 @@ export default function DOJSearchPage() {
                           ))}
                         </div>
                         <div className="suggestions-column">
-                          <p className="suggestions-label">Latest 10 Searches</p>
+                          <p className="suggestions-label">
+                            Latest 10 Searches
+                          </p>
                           {latestSuggestions.map((suggestion) => (
                             <button
                               key={`latest-${suggestion}`}
@@ -712,10 +742,6 @@ export default function DOJSearchPage() {
             <p>
               {data.resultCount} items
               {typeof data.total === "number" ? ` | total ${data.total}` : ""}
-              {typeof data.uniqueCount === "number"
-                ? ` | unique ${data.uniqueCount}`
-                : ""}
-              {" | "}status {data.status}
             </p>
           </header>
           <div className="detail-list">
@@ -762,7 +788,9 @@ export default function DOJSearchPage() {
                         <button
                           type="button"
                           onClick={() => void onUpvote(result)}
-                          disabled={votingUrl === result.url || result.userVoted}
+                          disabled={
+                            votingUrl === result.url || result.userVoted
+                          }
                         >
                           ▲ {result.upvotes}
                         </button>
@@ -771,12 +799,15 @@ export default function DOJSearchPage() {
                           className="bookmark-btn"
                           onClick={() => void onBookmark(result)}
                           disabled={
-                            bookmarkingUrl === result.url || result.userBookmarked
+                            bookmarkingUrl === result.url ||
+                            result.userBookmarked
                           }
                         >
                           <span className="bookmark-content">
                             <BookmarkIcon saved={result.userBookmarked} />
-                            <span className="mono">{result.bookmarkCount ?? 0}</span>
+                            <span className="mono">
+                              {result.bookmarkCount ?? 0}
+                            </span>
                           </span>
                         </button>
                       </div>
@@ -791,7 +822,10 @@ export default function DOJSearchPage() {
           </div>
           <div className="mobile-result-list">
             {data.results.map((result) => (
-              <article key={`${result.url}-mobile`} className="mobile-result-card">
+              <article
+                key={`${result.url}-mobile`}
+                className="mobile-result-card"
+              >
                 <a
                   href={result.sources.original_link ?? result.url}
                   className="table-link mobile-result-title"
@@ -824,13 +858,16 @@ export default function DOJSearchPage() {
                     >
                       <span className="bookmark-content">
                         <BookmarkIcon saved={result.userBookmarked} />
-                        <span className="mono">{result.bookmarkCount ?? 0}</span>
+                        <span className="mono">
+                          {result.bookmarkCount ?? 0}
+                        </span>
                       </span>
                     </button>
                   </div>
                 </div>
                 <p className="mobile-result-line">
-                  <strong>Highlight:</strong> {renderHighlightedBits(result.highlight)}
+                  <strong>Highlight:</strong>{" "}
+                  {renderHighlightedBits(result.highlight)}
                 </p>
               </article>
             ))}
@@ -893,7 +930,8 @@ export default function DOJSearchPage() {
                       type="button"
                       onClick={() => void onUpvote(previewResult)}
                       disabled={
-                        votingUrl === previewResult.url || previewResult.userVoted
+                        votingUrl === previewResult.url ||
+                        previewResult.userVoted
                       }
                     >
                       ▲ {previewResult.upvotes}
@@ -909,7 +947,9 @@ export default function DOJSearchPage() {
                     >
                       <span className="bookmark-content">
                         <BookmarkIcon saved={previewResult.userBookmarked} />
-                        <span className="mono">{previewResult.bookmarkCount ?? 0}</span>
+                        <span className="mono">
+                          {previewResult.bookmarkCount ?? 0}
+                        </span>
                       </span>
                     </button>
                   </>
@@ -936,7 +976,9 @@ export default function DOJSearchPage() {
                 </button>
               </div>
             </header>
-            <div className={`pdf-modal-body${showNoteSidebar ? " has-note-sidebar" : ""}`}>
+            <div
+              className={`pdf-modal-body${showNoteSidebar ? " has-note-sidebar" : ""}`}
+            >
               <div className="pdf-modal-frame-wrap">
                 <iframe
                   src={withPdfZoom(previewUrl)}
@@ -947,7 +989,9 @@ export default function DOJSearchPage() {
               {showNoteSidebar && (
                 <aside className="note-sidebar">
                   <h3>Bookmark Note</h3>
-                  {noteLoading ? <p className="empty">Loading note...</p> : null}
+                  {noteLoading ? (
+                    <p className="empty">Loading note...</p>
+                  ) : null}
                   <textarea
                     value={noteDraft}
                     onChange={(event) => setNoteDraft(event.target.value)}
@@ -959,10 +1003,62 @@ export default function DOJSearchPage() {
                     onClick={() => void onSaveNote()}
                     disabled={noteSaving || !isNoteDirty}
                   >
-                    {noteSaving ? "Saving..." : isNoteDirty ? "Save Note" : "Saved"}
+                    {noteSaving
+                      ? "Saving..."
+                      : isNoteDirty
+                        ? "Save Note"
+                        : "Saved"}
                   </button>
                 </aside>
               )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {mobileViewerUrl && (
+        <div
+          className="doj-mobile-viewer-backdrop"
+          onClick={() => {
+            setMobileViewerUrl(null);
+            setMobileViewerTitle("");
+          }}
+          role="presentation"
+        >
+          <section
+            className="doj-mobile-viewer-modal deleted-debug-root deleted-browser-mobile-shell"
+            role="dialog"
+            aria-modal="true"
+            aria-label={mobileViewerTitle || "Mobile PDF Viewer"}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="deleted-debug-topbar doj-mobile-viewer-topbar">
+              <div className="deleted-debug-top-main">
+                <div className="deleted-debug-meta">
+                  <p className="deleted-debug-kicker">DOJ Search</p>
+                  <p className="deleted-debug-fileline">
+                    {mobileViewerTitle || "PDF Viewer"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="doj-mobile-viewer-close"
+                onClick={() => {
+                  setMobileViewerUrl(null);
+                  setMobileViewerTitle("");
+                }}
+                aria-label="Close viewer"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>
+            <div className="doj-mobile-viewer-frame-wrap">
+              <iframe
+                src={mobileViewerUrl}
+                title={mobileViewerTitle || "Mobile PDF Viewer"}
+                className="doj-mobile-viewer-frame"
+              />
             </div>
           </section>
         </div>

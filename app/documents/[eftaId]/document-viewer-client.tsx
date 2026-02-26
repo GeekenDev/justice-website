@@ -261,61 +261,98 @@ export default function DocumentViewerClient({ eftaId }: DocumentViewerClientPro
   }
 
   return (
-    <main className="app-shell">
-      <div className="glow glow-left" />
-      <div className="glow glow-right" />
-
-      <section className="hero">
-        <p className="eyebrow">Document Viewer</p>
-        <h1 className="mono">{eftaId}</h1>
-        <p className="subtitle">Dedicated PDF.js canvas viewer with page and zoom controls.</p>
-      </section>
-
-      <section className="panel detail-nav link-bar">
-        <button type="button" onClick={() => window.history.back()}>
-          Back
-        </button>
-        <Link href={`/file/${encodeURIComponent(eftaId)}`} className="table-link">
-          File Details
-        </Link>
-        <a href={sourceUrl || "#"} download={`${eftaId}.pdf`} className="table-link">
-          Download PDF
-        </a>
-      </section>
-
-      <section className="panel document-viewer-panel">
-        <header className="document-viewer-controls">
-          <button type="button" onClick={onPrevious} disabled={page <= 1 || pageRendering}>
-            Previous Page
+    <main className="deleted-debug-root deleted-browser-mobile-shell">
+      <section className="panel detail-nav link-bar deleted-browser-desktop-only">
+        <div className="deleted-browser-nav-left">
+          <button type="button" onClick={() => window.history.back()}>
+            Back
           </button>
-          <p className="mono">
-            Page {page} / {pageCount || "-"}
-          </p>
-          <button type="button" onClick={onNext} disabled={pageCount === 0 || page >= pageCount || pageRendering}>
-            Next Page
-          </button>
-          <button type="button" onClick={onZoomOut} disabled={pageRendering}>
-            -
-          </button>
-          <p className="mono">{Math.round(zoom * 100)}%</p>
-          <button type="button" onClick={onZoomIn} disabled={pageRendering}>
-            +
-          </button>
-        </header>
-
-        <div className="document-viewer-scroll">
-          {rendererFailed ? (
-            <p className="empty">Custom PDF renderer failed to initialize.</p>
-          ) : null}
-          {rendererInitError ? <p className="empty mono">Renderer init error: {rendererInitError}</p> : null}
-          {pdfLoadError ? <p className="empty mono">PDF load error: {pdfLoadError}</p> : null}
-          {!rendererFailed && !pdfLoadError ? (
-            <div className="document-viewer-page">
-              <canvas ref={canvasRef} />
-            </div>
-          ) : null}
+          <Link href="/doj-search" className="table-link">
+            DOJ Search
+          </Link>
+        </div>
+        <div className="deleted-browser-nav-right">
+          <Link href={`/file/${encodeURIComponent(eftaId)}`} className="table-link">
+            File Details
+          </Link>
+          <a href={sourceUrl || "#"} download={`${eftaId}.pdf`} className="table-link">
+            Download PDF
+          </a>
         </div>
       </section>
+
+      <div className="deleted-debug-topbar">
+        <div className="deleted-debug-top-main">
+          <div className="deleted-debug-meta">
+            <p className="deleted-debug-kicker">DOJ Mobile Viewer</p>
+            <p className="deleted-debug-fileline">{eftaId}</p>
+          </div>
+          <div className="deleted-debug-status">
+            <span className="deleted-debug-chip">DOJ Search</span>
+            <span className="deleted-debug-chip">
+              Page {page} / {pageCount || "-"}
+            </span>
+            <span className="deleted-debug-chip">{Math.round(zoom * 100)}%</span>
+          </div>
+        </div>
+        <div className="deleted-debug-controls-row">
+          <div className="deleted-debug-controls">
+            <div className="deleted-debug-zoom-group">
+              <button
+                type="button"
+                className="deleted-debug-btn"
+                onClick={onPrevious}
+                disabled={page <= 1 || pageRendering}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                className="deleted-debug-btn"
+                onClick={onNext}
+                disabled={pageCount === 0 || page >= pageCount || pageRendering}
+              >
+                Next
+              </button>
+              <button
+                type="button"
+                className="deleted-debug-btn deleted-debug-btn-secondary"
+                onClick={onZoomOut}
+                disabled={pageRendering}
+              >
+                -
+              </button>
+              <button
+                type="button"
+                className="deleted-debug-btn deleted-debug-btn-secondary"
+                onClick={onZoomIn}
+                disabled={pageRendering}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+        {rendererFailed ? (
+          <p className="deleted-debug-error">
+            Custom PDF renderer failed to initialize.
+          </p>
+        ) : null}
+        {rendererInitError ? (
+          <p className="deleted-debug-error">Renderer init error: {rendererInitError}</p>
+        ) : null}
+        {pdfLoadError ? (
+          <p className="deleted-debug-error">PDF load error: {pdfLoadError}</p>
+        ) : null}
+      </div>
+
+      <div className="deleted-debug-pdf-scroll">
+        {!rendererFailed && !pdfLoadError ? (
+          <div className="deleted-debug-page">
+            <canvas ref={canvasRef} />
+          </div>
+        ) : null}
+      </div>
     </main>
   );
 }

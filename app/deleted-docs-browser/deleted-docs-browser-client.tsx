@@ -912,21 +912,30 @@ export default function DeletedDocsBrowserDebugClient() {
     <main className="deleted-debug-root deleted-browser-mobile-shell">
       <section className="panel detail-nav link-bar deleted-browser-desktop-only">
         <div className="deleted-browser-nav-left">
-          <Link href="/" className="table-link">
+          <Link href="/" prefetch={false} className="table-link">
             Back to Dashboard
           </Link>
-          <Link href="/deleted-docs-top-upvoted" className="table-link">
+          <Link
+            href="/deleted-docs-top-upvoted"
+            prefetch={false}
+            className="table-link"
+          >
             View Top Upvoted
           </Link>
         </div>
         <div className="deleted-browser-nav-right">
           <Link
             href="/deleted-docs-my-upvotes"
+            prefetch={false}
             className="table-link link-right"
           >
             View My Upvotes
           </Link>
-          <Link href="/deleted-docs-bookmarks" className="table-link">
+          <Link
+            href="/deleted-docs-bookmarks"
+            prefetch={false}
+            className="table-link"
+          >
             View Bookmarks
           </Link>
         </div>
@@ -939,6 +948,14 @@ export default function DeletedDocsBrowserDebugClient() {
           title={shareTitle}
           text={shareText}
         />
+        <Link
+          href="/"
+          prefetch={false}
+          className="deleted-debug-mobile-home-btn"
+          aria-label="Back to homepage"
+        >
+          ×
+        </Link>
         <div className="deleted-debug-top-main">
           <div className="deleted-debug-meta">
             <p className="deleted-debug-kicker">Deleted Docs Browser</p>

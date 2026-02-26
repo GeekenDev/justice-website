@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import GlobalNav from "@/components/global-nav";
+import { globalNavConfig } from "@/lib/global-nav-config";
 
 type FileRow = {
   efta_id: string;
@@ -145,6 +147,30 @@ export default function HomePage() {
   }, [q, dataset, alteredOnly, deletedOnly]);
 
   useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const viewportMeta = document.querySelector(
+      'meta[name="viewport"]',
+    ) as HTMLMetaElement | null;
+    if (!viewportMeta) {
+      return;
+    }
+    const previousContent = viewportMeta.getAttribute("content");
+    viewportMeta.setAttribute(
+      "content",
+      "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
+    );
+    return () => {
+      if (previousContent) {
+        viewportMeta.setAttribute("content", previousContent);
+      } else {
+        viewportMeta.removeAttribute("content");
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     async function loadStats() {
       setLoadingStats(true);
       setError(null);
@@ -231,26 +257,11 @@ export default function HomePage() {
         </p>
       </section>
 
-      <section className="panel detail-nav link-bar">
-        <Link href="/overview" className="table-link">
-          Overview
-        </Link>
-        <Link href="/archive-downloads" className="table-link">
-          Archive Downloads
-        </Link>
-        <Link href="/doj-search" className="table-link">
-          DOJ Search
-        </Link>
-        <Link href="/deleted-docs-browser" className="table-link">
-          Deleted Docs Browser
-        </Link>
-        <Link href="/deleted-docs-top-upvoted" className="table-link">
-          Top Deleted Upvotes
-        </Link>
-        <Link href="/api" className="table-link">
-          API Docs
-        </Link>
-      </section>
+      <GlobalNav
+        items={globalNavConfig.items}
+        mobileTitle={globalNavConfig.mobileTitle}
+        initiallyExpandedGroups={globalNavConfig.initiallyExpandedGroups}
+      />
 
       {error && (
         <section className="panel error-panel">
@@ -355,7 +366,7 @@ export default function HomePage() {
       </section>
 
       <section className="results-layout">
-        <article className="panel">
+        <article className="panel home-results-panel">
           <header className="results-head">
             <h2>Results</h2>
             <p>
@@ -432,7 +443,7 @@ export default function HomePage() {
                       <td>
                         <div className="badge-row">
                           {row.altered && (
-                            <span className="badge badge-accent">Altered</span>
+                            <span className="badge badge-altered">Altered</span>
                           )}
                           {row.deleted && (
                             <span className="badge badge-danger">Deleted</span>
@@ -440,11 +451,9 @@ export default function HomePage() {
                           {row.hidden && (
                             <span className="badge badge-muted">Hidden</span>
                           )}
-                          {!row.altered &&
-                            !row.deleted &&
-                            !row.hidden && (
-                              <span className="badge badge-ok">Active</span>
-                            )}
+                          {!row.altered && !row.deleted && !row.hidden && (
+                            <span className="badge badge-ok">Active</span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -453,6 +462,88 @@ export default function HomePage() {
               </tbody>
             </table>
 
+            {!loadingSearch && search.rows.length === 0 && (
+              <p className="empty">No rows matched this query.</p>
+            )}
+          </div>
+
+          <div className="mobile-result-list">
+            {search.rows.map((row) => {
+              const originalLink = buildOriginalFileLink(row);
+              const currentDojLink = buildCurrentDojLink(row);
+              const statusLabel = row.deleted
+                ? "Deleted"
+                : row.altered
+                  ? "Altered"
+                  : row.hidden
+                    ? "Hidden"
+                    : "Active";
+              const statusClassName = row.deleted
+                ? "badge-danger"
+                : row.altered
+                  ? "badge-altered"
+                  : row.hidden
+                    ? "badge-muted"
+                    : "badge-ok";
+              return (
+                <article
+                  key={`${row.efta_id}-mobile`}
+                  className="mobile-result-card"
+                  onClick={() => void loadFileDetails(row.efta_id)}
+                >
+                  <div className="home-mobile-topline">
+                    <Link
+                      href={`/file/${encodeURIComponent(row.efta_id)}`}
+                      className="table-link mobile-result-title"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {row.efta_id}
+                    </Link>
+                    <div className="home-mobile-pill-group">
+                      <span className={`badge ${statusClassName}`}>
+                        {statusLabel}
+                      </span>
+                      <span className="badge badge-accent">
+                        Dataset {row.dataset ?? "-"}
+                      </span>
+                      <span className="badge badge-accent">
+                        Pages {formatNumber(row.page_count)}
+                      </span>
+                    </div>
+                  </div>
+                  <p className="mobile-result-line home-mobile-links-line">
+                    <strong>Sources:</strong>{" "}
+                    {originalLink ? (
+                      <a
+                        href={originalLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="table-link"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        Archive Link
+                      </a>
+                    ) : (
+                      "-"
+                    )}
+                    {" | "}
+                    {currentDojLink ? (
+                      <a
+                        href={currentDojLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="table-link"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        DOJ Link
+                      </a>
+                    ) : (
+                      "-"
+                    )}
+                  </p>
+                </article>
+              );
+            })}
             {!loadingSearch && search.rows.length === 0 && (
               <p className="empty">No rows matched this query.</p>
             )}
@@ -516,16 +607,13 @@ export default function HomePage() {
                 {formatNumber(selected.file.page_count)}
               </p>
               <p>
-                <strong>Altered:</strong>{" "}
-                {selected.file.altered ? "Yes" : "No"}
+                <strong>Altered:</strong> {selected.file.altered ? "Yes" : "No"}
               </p>
               <p>
-                <strong>Hidden:</strong>{" "}
-                {selected.file.hidden ? "Yes" : "No"}
+                <strong>Hidden:</strong> {selected.file.hidden ? "Yes" : "No"}
               </p>
               <p>
-                <strong>Deleted:</strong>{" "}
-                {selected.file.deleted ? "Yes" : "No"}
+                <strong>Deleted:</strong> {selected.file.deleted ? "Yes" : "No"}
               </p>
               <p>
                 <strong>DOJ Page:</strong>{" "}
