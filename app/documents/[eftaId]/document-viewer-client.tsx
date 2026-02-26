@@ -143,7 +143,7 @@ export default function DocumentViewerClient({ eftaId }: DocumentViewerClientPro
         if (isCancelled) {
           return;
         }
-        const typedDoc = doc as PdfJsDocument;
+        const typedDoc = doc as unknown as PdfJsDocument;
         setPdfDoc(typedDoc);
         setPageCount(typedDoc.numPages || 0);
         setPage((prev) => Math.min(Math.max(1, prev), typedDoc.numPages || 1));

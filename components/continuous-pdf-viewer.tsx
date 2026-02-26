@@ -300,7 +300,7 @@ export default function ContinuousPdfViewer({
         if (isCancelled) {
           return;
         }
-        const typedDoc = doc as PdfJsDocument;
+        const typedDoc = doc as unknown as PdfJsDocument;
         setPdfDoc(typedDoc);
         setPageCount(typedDoc.numPages || 0);
         setPdfLoadError(null);

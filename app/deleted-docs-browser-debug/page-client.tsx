@@ -481,7 +481,7 @@ export default function DeletedDocsBrowserDebugClient() {
         if (cancelled) {
           return;
         }
-        const typed = doc as PdfJsDocument;
+        const typed = doc as unknown as PdfJsDocument;
         setPdfDoc(typed);
         setPageCount(typed.numPages || 0);
         pushLog(`PDF loaded: numPages=${typed.numPages || 0}`);

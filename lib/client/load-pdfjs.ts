@@ -1,18 +1,37 @@
-import { useEffect } from "react";
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf";
+import { applyPdfCompatPolyfills } from "@/lib/client/pdf-compat";
 
-export default function PDFViewer({ fileUrl }: { fileUrl: string }) {
-  useEffect(() => {
-    // 👇 SET WORKER PATH HERE
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
+type PdfJsModule = {
+  version: string;
+  GlobalWorkerOptions: { workerSrc: string };
+  getDocument: (src: unknown) => { promise: Promise<unknown>; destroy?: () => void };
+};
 
-    const loadPdf = async () => {
-      const loadingTask = pdfjs.getDocument(fileUrl);
-      const pdf = await loadingTask.promise;
+type LoadedPdfJsModule = {
+  pdfjs: PdfJsModule;
+  version: string;
+  workerSrc: string;
+};
 
-      console.log("Pages:", pdf.numPages);
+let pdfJsModulePromise: Promise<LoadedPdfJsModule> | null = null;
+
+export async function loadPdfJsModule(): Promise<LoadedPdfJsModule> {
+  if (pdfJsModulePromise) {
+    return pdfJsModulePromise;
+  }
+
+  pdfJsModulePromise = (async () => {
+    applyPdfCompatPolyfills();
+
+    const pdfjs = (await import("pdfjs-dist/legacy/build/pdf")) as unknown as PdfJsModule;
+    const workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+    pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+
+    return {
+      pdfjs,
+      version: pdfjs.version,
+      workerSrc,
     };
+  })();
 
-    loadPdf();
-  }, [fileUrl]);
+  return pdfJsModulePromise;
 }

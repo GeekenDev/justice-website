@@ -48,8 +48,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.j
 async function diagnosePdfSource(url: string) {
   try {
     const head = await fetch(url, { method: "HEAD" });
-    const allowOrigin = head.headers.get("access-control-allow-origin") || "none";
-    const exposeHeaders = head.headers.get("access-control-expose-headers") || "none";
+    const allowOrigin =
+      head.headers.get("access-control-allow-origin") || "none";
+    const exposeHeaders =
+      head.headers.get("access-control-expose-headers") || "none";
     const acceptRanges = head.headers.get("accept-ranges") || "none";
     const contentType = head.headers.get("content-type") || "unknown";
     return `probe status=${head.status} type=${contentType} allow-origin=${allowOrigin} accept-ranges=${acceptRanges} expose=${exposeHeaders}`;
@@ -121,10 +123,13 @@ export default function DeletedDocsBrowserDebugClient() {
     node.style.zoom = String(nextZoom);
   }, []);
 
-  const setVisualZoom = useCallback((nextZoom: number) => {
-    zoomRef.current = nextZoom;
-    syncVisualZoom(nextZoom);
-  }, [syncVisualZoom]);
+  const setVisualZoom = useCallback(
+    (nextZoom: number) => {
+      zoomRef.current = nextZoom;
+      syncVisualZoom(nextZoom);
+    },
+    [syncVisualZoom],
+  );
 
   const pushLog = useCallback((message: string) => {
     // debug.terminal(`[deleted-docs-browser-debug] ${message}`);
@@ -733,7 +738,7 @@ export default function DeletedDocsBrowserDebugClient() {
         if (cancelled) {
           return;
         }
-        const typed = doc as PdfJsDocument;
+        const typed = doc as unknown as PdfJsDocument;
         setPdfDoc(typed);
         setPageCount(typed.numPages || 0);
         setPreferNativeFallback(false);
@@ -893,7 +898,15 @@ export default function DeletedDocsBrowserDebugClient() {
         }
       }
     };
-  }, [isDesktopViewport, pageWidth, pageCount, pdfDoc, pushLog, renderZoom, useCanvasRenderer]);
+  }, [
+    isDesktopViewport,
+    pageWidth,
+    pageCount,
+    pdfDoc,
+    pushLog,
+    renderZoom,
+    useCanvasRenderer,
+  ]);
 
   return (
     <main className="deleted-debug-root deleted-browser-mobile-shell">
@@ -966,11 +979,7 @@ export default function DeletedDocsBrowserDebugClient() {
               <button
                 type="button"
                 className="deleted-debug-btn"
-                disabled={
-                  isNavigatingDoc ||
-                  isPdfLoading ||
-                  !selectedId
-                }
+                disabled={isNavigatingDoc || isPdfLoading || !selectedId}
                 onClick={() => void onNextDoc()}
               >
                 Next
@@ -1037,7 +1046,7 @@ export default function DeletedDocsBrowserDebugClient() {
             </p>
           </object>
         ) : (
-          <p className="deleted-debug-error">No PDF source URL found.</p>
+          <p className="deleted-debug-error">Loading PDF...</p>
         )}
       </div>
     </main>
