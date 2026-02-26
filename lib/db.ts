@@ -820,6 +820,16 @@ async function ensureV2SearchResultPagesTable(client: Client) {
   `);
 }
 
+async function ensureV2SearchQueriesTable(client: Client) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS search_v2_queries (
+      query_text TEXT PRIMARY KEY,
+      hit_count INTEGER NOT NULL DEFAULT 1,
+      last_success_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
 async function ensureDeletedDocThumbnailsTable(client: Client) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS deleted_doc_thumbnails (
@@ -973,12 +983,26 @@ export async function getDojSearchQuerySuggestions(
 
   return withClient(async (client) => {
     await ensureDojSearchQueriesTable(client);
+    await ensureV2SearchQueriesTable(client);
     const result = await client.query<DOJSearchSuggestionRow>(
       `
+      WITH combined AS (
+        SELECT query_text, hit_count, last_success_at FROM doj_search_queries
+        UNION ALL
+        SELECT query_text, hit_count, last_success_at FROM search_v2_queries
+      ),
+      merged AS (
+        SELECT
+          query_text,
+          SUM(hit_count)::bigint AS total_hits,
+          MAX(last_success_at) AS latest_at
+        FROM combined
+        GROUP BY query_text
+      )
       SELECT query_text
-      FROM doj_search_queries
+      FROM merged
       WHERE query_text ILIKE $1
-      ORDER BY hit_count DESC, last_success_at DESC
+      ORDER BY total_hits DESC, latest_at DESC
       LIMIT $2
       `,
       [`${normalized}%`, safeLimit],
@@ -992,11 +1016,25 @@ export async function getTopDojSearchQueries(limit = 10) {
 
   return withClient(async (client) => {
     await ensureDojSearchQueriesTable(client);
+    await ensureV2SearchQueriesTable(client);
     const result = await client.query<DOJSearchSuggestionRow>(
       `
+      WITH combined AS (
+        SELECT query_text, hit_count, last_success_at FROM doj_search_queries
+        UNION ALL
+        SELECT query_text, hit_count, last_success_at FROM search_v2_queries
+      ),
+      merged AS (
+        SELECT
+          query_text,
+          SUM(hit_count)::bigint AS total_hits,
+          MAX(last_success_at) AS latest_at
+        FROM combined
+        GROUP BY query_text
+      )
       SELECT query_text
-      FROM doj_search_queries
-      ORDER BY hit_count DESC, last_success_at DESC
+      FROM merged
+      ORDER BY total_hits DESC, latest_at DESC
       LIMIT $1
       `,
       [safeLimit],
@@ -1010,11 +1048,25 @@ export async function getLatestDojSearchQueries(limit = 10) {
 
   return withClient(async (client) => {
     await ensureDojSearchQueriesTable(client);
+    await ensureV2SearchQueriesTable(client);
     const result = await client.query<DOJSearchSuggestionRow>(
       `
+      WITH combined AS (
+        SELECT query_text, hit_count, last_success_at FROM doj_search_queries
+        UNION ALL
+        SELECT query_text, hit_count, last_success_at FROM search_v2_queries
+      ),
+      merged AS (
+        SELECT
+          query_text,
+          SUM(hit_count)::bigint AS total_hits,
+          MAX(last_success_at) AS latest_at
+        FROM combined
+        GROUP BY query_text
+      )
       SELECT query_text
-      FROM doj_search_queries
-      ORDER BY last_success_at DESC
+      FROM merged
+      ORDER BY latest_at DESC, total_hits DESC
       LIMIT $1
       `,
       [safeLimit],
@@ -2017,6 +2069,28 @@ export async function getTopUpvotedDeletedDocs(limit = 100) {
       vote_count: Number(row.vote_count) || 0,
       last_voted_at: row.last_voted_at,
     }));
+  });
+}
+
+export async function recordV2SearchQuery(query: string) {
+  const normalized = query.trim();
+  if (!normalized) {
+    return;
+  }
+
+  await withClient(async (client) => {
+    await ensureV2SearchQueriesTable(client);
+    await client.query(
+      `
+      INSERT INTO search_v2_queries (query_text, hit_count, last_success_at)
+      VALUES ($1, 1, NOW())
+      ON CONFLICT (query_text)
+      DO UPDATE
+      SET hit_count = search_v2_queries.hit_count + 1,
+          last_success_at = NOW()
+      `,
+      [normalized],
+    );
   });
 }
 

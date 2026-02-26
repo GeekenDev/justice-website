@@ -15,7 +15,8 @@
     "sitemap:build:force": "node scripts/generate-sitemaps-build.mjs --force",
     "kv:flush": "node scripts/flush-query-cache-kv.mjs",
     "kv:flush:dry-run": "node scripts/flush-query-cache-kv.mjs --dry-run",
-    "watch:queries": "dotenv -e .dev.vars -- node scripts/watch-latest-search-queries.mjs"
+    "watch:queries": "dotenv -e .dev.vars -- node scripts/watch-latest-search-queries.mjs",
+    "tail:parse": "node scripts/parse-tail-urls.mjs"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.16.5",

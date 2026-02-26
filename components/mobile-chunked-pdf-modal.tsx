@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  startTransition,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import Link from "next/link";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import ShareButton from "@/components/share-button";
 
@@ -29,40 +21,37 @@ type PdfJsPage = {
   }) => { promise: Promise<void>; cancel?: () => void };
 };
 
-type LogEntry = {
-  id: number;
-  message: string;
+type MobileChunkedPdfModalProps = {
+  sourceUrl: string;
+  title: string;
+  kicker: string;
+  eftaId?: string;
+  onClose: () => void;
 };
 
-const DEBUG_DATASET_ID = "9";
 const MAX_ZOOM = 3.5;
 const MAX_RENDER_ZOOM = 2;
 const MOMENTUM_BOOST = 18;
 const MIN_FLING_DISTANCE_PX = 22;
-const MIN_FLING_SPEED = 0.14; // px/ms from touch sampling
+const MIN_FLING_SPEED = 0.14;
 const MAX_FLING_SAMPLE_AGE_MS = 70;
-const VOTER_ID_KEY = "deleted_doc_voter_id";
 const RENDER_CHUNK_SIZE = 12;
 const CHUNK_PRELOAD_MARGIN_PX = 1200;
+const VOTER_ID_KEY = "deleted_doc_voter_id";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
-async function diagnosePdfSource(url: string) {
-  try {
-    const head = await fetch(url, { method: "HEAD" });
-    const allowOrigin =
-      head.headers.get("access-control-allow-origin") || "none";
-    const exposeHeaders =
-      head.headers.get("access-control-expose-headers") || "none";
-    const acceptRanges = head.headers.get("accept-ranges") || "none";
-    const contentType = head.headers.get("content-type") || "unknown";
-    return `probe status=${head.status} type=${contentType} allow-origin=${allowOrigin} accept-ranges=${acceptRanges} expose=${exposeHeaders}`;
-  } catch (error) {
-    return `probe failed=${String(error)}`;
-  }
+function withPdfZoom(url: string) {
+  return `${url}${url.includes("#") ? "&" : "#"}page=1&view=FitH&zoom=page-width&scrollbar=1&pagemode=none`;
 }
 
-export default function DeletedDocsBrowserDebugClient() {
+export default function MobileChunkedPdfModal({
+  sourceUrl,
+  title,
+  kicker,
+  eftaId = "",
+  onClose,
+}: MobileChunkedPdfModalProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const transformRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -90,20 +79,8 @@ export default function DeletedDocsBrowserDebugClient() {
     vy: number;
   } | null>(null);
   const momentumFrameRef = useRef<number | null>(null);
-  const [, setLogs] = useState<LogEntry[]>([]);
-  const [selectedId, setSelectedId] = useState("");
-  const [visitedIds, setVisitedIds] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [isNavigatingDoc, setIsNavigatingDoc] = useState(false);
-  const [upvoteCount, setUpvoteCount] = useState(0);
-  const [userVoted, setUserVoted] = useState(false);
-  const [isVoting, setIsVoting] = useState(false);
-  const [voterId, setVoterId] = useState("");
-  const [documentUrl, setDocumentUrl] = useState("");
-  const selectedIdRef = useRef("");
-  const initSelectionInFlightRef = useRef(false);
-  const visitedIdsRef = useRef<string[]>([]);
-  const historyIndexRef = useRef(-1);
+
+  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
   const [pdfDoc, setPdfDoc] = useState<PdfJsDocument | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [renderedPageLimit, setRenderedPageLimit] = useState(0);
@@ -112,206 +89,31 @@ export default function DeletedDocsBrowserDebugClient() {
   const [renderZoom, setRenderZoom] = useState(1);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
-  const [preferNativeFallback, setPreferNativeFallback] = useState(false);
-  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
-  // Use PDF.js on mobile so zoom/pan are scoped to the viewer surface.
-  // Desktop continues to use native inline PDF rendering.
-  const usePdfJsRenderer = !isDesktopViewport;
-  const useCanvasRenderer = usePdfJsRenderer && !preferNativeFallback;
+  const [voterId, setVoterId] = useState("");
+  const [upvoteCount, setUpvoteCount] = useState(0);
+  const [userVoted, setUserVoted] = useState(false);
+  const [isVoting, setIsVoting] = useState(false);
+  const [canUpvote, setCanUpvote] = useState(false);
   const pageWidth = Math.max(280, Math.floor(basePageWidth));
+  const normalizedEftaId = eftaId.trim().toUpperCase();
+  const shareUrl = useMemo(() => {
+    if (!normalizedEftaId || typeof window === "undefined") {
+      return sourceUrl;
+    }
+    return `${window.location.origin}/documents/${encodeURIComponent(normalizedEftaId)}`;
+  }, [normalizedEftaId, sourceUrl]);
+  const shareTitle = normalizedEftaId || title || "PDF Viewer";
+  const shareText = normalizedEftaId
+    ? `Document ${normalizedEftaId}`
+    : "PDF document";
 
-  const syncVisualZoom = useCallback((nextZoom: number) => {
+  const syncVisualZoom = (nextZoom: number) => {
     const node = transformRef.current;
     if (!node) {
       return;
     }
     node.style.zoom = String(nextZoom);
-  }, []);
-
-  const setVisualZoom = useCallback(
-    (nextZoom: number) => {
-      zoomRef.current = nextZoom;
-      syncVisualZoom(nextZoom);
-    },
-    [syncVisualZoom],
-  );
-
-  const pushLog = useCallback((message: string) => {
-    // debug.terminal(`[deleted-docs-browser-debug] ${message}`);
-    // debug.file(`[deleted-docs-browser-debug] ${message}`);
-    setLogs((prev) => {
-      const entry: LogEntry = {
-        id: Date.now() + Math.floor(Math.random() * 1000),
-        message: `${new Date().toISOString()} ${message}`,
-      };
-      const next = [...prev, entry];
-      return next.slice(-200);
-    });
-  }, []);
-
-  const shareUrl = useMemo(() => {
-    if (typeof window === "undefined" || !selectedId) {
-      return "";
-    }
-    return `${window.location.origin}/deleted-docs-browser?id=${encodeURIComponent(selectedId)}`;
-  }, [selectedId]);
-  const shareTitle = useMemo(
-    () => (selectedId ? `Deleted file ${selectedId}` : "Deleted file"),
-    [selectedId],
-  );
-  const shareText = useMemo(
-    () =>
-      selectedId
-        ? `Deleted DOJ file ${selectedId} (Dataset ${DEBUG_DATASET_ID})`
-        : "",
-    [selectedId],
-  );
-  const desktopPdfSourceUrl = useMemo(() => {
-    const trimmed = documentUrl.trim();
-    return trimmed || "";
-  }, [documentUrl]);
-  const pdfSourceUrl = useMemo(() => {
-    const trimmed = documentUrl.trim();
-    return trimmed || "";
-  }, [documentUrl]);
-
-  const loadRandomDeletedId = useCallback(async (excludeIds: string[]) => {
-    const params = new URLSearchParams();
-    if (excludeIds.length > 0) {
-      params.set("exclude", excludeIds.join(","));
-    }
-    const response = await fetch(
-      `/api/deleted-browser/random?${params.toString()}`,
-    );
-    const payload = (await response.json()) as {
-      file?: { efta_id?: string };
-      error?: string;
-    };
-    if (!response.ok) {
-      throw new Error(payload.error || "Failed to load random deleted file");
-    }
-    const id = (payload.file?.efta_id ?? "").trim().toUpperCase();
-    return id || null;
-  }, []);
-
-  async function loadDeletedDocVoteState(id: string, currentVoterId: string) {
-    const response = await fetch(
-      `/api/deleted-browser/file?id=${encodeURIComponent(id)}`,
-      {
-        headers: currentVoterId ? { "x-voter-id": currentVoterId } : {},
-      },
-    );
-    const payload = (await response.json()) as {
-      file?: {
-        upvotes?: number;
-        userVoted?: boolean;
-        sources?: {
-          original_link?: string | null;
-          doj_link?: string | null;
-        };
-      };
-      error?: string;
-    };
-    if (!response.ok) {
-      throw new Error(payload.error || "Failed to load deleted file");
-    }
-    return {
-      upvotes:
-        typeof payload.file?.upvotes === "number" ? payload.file.upvotes : 0,
-      userVoted: Boolean(payload.file?.userVoted),
-      sourceUrl:
-        payload.file?.sources?.original_link?.trim() ||
-        payload.file?.sources?.doj_link?.trim() ||
-        "",
-    };
-  }
-
-  async function onUpvoteDoc() {
-    if (!selectedId || !voterId || userVoted || isVoting) {
-      return;
-    }
-    setIsVoting(true);
-    try {
-      const response = await fetch("/api/deleted-browser/upvote", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-voter-id": voterId,
-        },
-        body: JSON.stringify({
-          eftaId: selectedId,
-        }),
-      });
-      const payload = (await response.json()) as {
-        voteCount?: number;
-        alreadyVoted?: boolean;
-        error?: string;
-      };
-      if (!response.ok) {
-        throw new Error(payload.error || "Failed to upvote deleted doc");
-      }
-      if (typeof payload.voteCount === "number") {
-        setUpvoteCount(payload.voteCount);
-      } else {
-        setUpvoteCount((prev) => prev + 1);
-      }
-      setUserVoted(Boolean(payload.alreadyVoted) || true);
-    } catch (error) {
-      setFatalError(String(error));
-    } finally {
-      setIsVoting(false);
-    }
-  }
-
-  async function onNextDoc() {
-    if (!selectedId || isNavigatingDoc) {
-      return;
-    }
-
-    setIsNavigatingDoc(true);
-    try {
-      const excludes = new Set<string>(visitedIdsRef.current);
-      if (selectedIdRef.current) {
-        excludes.add(selectedIdRef.current);
-      }
-      const nextId = await loadRandomDeletedId(Array.from(excludes));
-      if (!nextId) {
-        return;
-      }
-
-      // Next always creates a new random step from the current point.
-      const baseHistory = visitedIdsRef.current.slice(
-        0,
-        historyIndexRef.current + 1,
-      );
-      const nextHistory = [...baseHistory, nextId];
-      setVisitedIds(nextHistory);
-      setHistoryIndex(nextHistory.length - 1);
-      setSelectedId(nextId);
-      visitedIdsRef.current = nextHistory;
-      historyIndexRef.current = nextHistory.length - 1;
-      selectedIdRef.current = nextId;
-    } catch (error) {
-      setFatalError(String(error));
-    } finally {
-      setIsNavigatingDoc(false);
-    }
-  }
-
-  function onPreviousDoc() {
-    if (historyIndexRef.current <= 0 || isNavigatingDoc) {
-      return;
-    }
-    const prevIndex = historyIndexRef.current - 1;
-    if (prevIndex < 0 || prevIndex >= visitedIdsRef.current.length) {
-      return;
-    }
-    const previousId = visitedIdsRef.current[prevIndex];
-    setHistoryIndex(prevIndex);
-    setSelectedId(previousId);
-    historyIndexRef.current = prevIndex;
-    selectedIdRef.current = previousId;
-  }
+  };
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 961px)");
@@ -326,70 +128,12 @@ export default function DeletedDocsBrowserDebugClient() {
   }, []);
 
   useEffect(() => {
-    selectedIdRef.current = selectedId;
-  }, [selectedId]);
-
-  useEffect(() => {
-    visitedIdsRef.current = visitedIds;
-  }, [visitedIds]);
-
-  useEffect(() => {
-    historyIndexRef.current = historyIndex;
-  }, [historyIndex]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function initSelectedFile() {
-      if (initSelectionInFlightRef.current || selectedIdRef.current) {
-        return;
-      }
-      initSelectionInFlightRef.current = true;
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const requestedId = (params.get("id") ?? "").trim().toUpperCase();
-        if (requestedId) {
-          if (!cancelled) {
-            selectedIdRef.current = requestedId;
-            visitedIdsRef.current = [requestedId];
-            historyIndexRef.current = 0;
-            setVisitedIds([requestedId]);
-            setHistoryIndex(0);
-            setSelectedId(requestedId);
-          }
-          return;
-        }
-
-        const randomId = await loadRandomDeletedId([]);
-        if (!cancelled && randomId && !selectedIdRef.current) {
-          selectedIdRef.current = randomId;
-          visitedIdsRef.current = [randomId];
-          historyIndexRef.current = 0;
-          setVisitedIds([randomId]);
-          setHistoryIndex(0);
-          setSelectedId(randomId);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setFatalError(String(error));
-        }
-      } finally {
-        initSelectionInFlightRef.current = false;
-      }
-    }
-    void initSelectedFile();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadRandomDeletedId]);
-
-  useEffect(() => {
     let id = "";
     try {
       id = window.localStorage.getItem(VOTER_ID_KEY) ?? "";
       if (!id) {
         id =
-          typeof crypto !== "undefined" &&
-          typeof crypto.randomUUID === "function"
+          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
             ? crypto.randomUUID()
             : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
         window.localStorage.setItem(VOTER_ID_KEY, id);
@@ -401,37 +145,99 @@ export default function DeletedDocsBrowserDebugClient() {
   }, []);
 
   useEffect(() => {
-    if (!selectedId) {
+    if (!normalizedEftaId || !voterId) {
+      setCanUpvote(false);
       setUpvoteCount(0);
       setUserVoted(false);
-      setDocumentUrl("");
       return;
     }
     let cancelled = false;
-    async function loadUpvotes() {
+    async function loadVoteState() {
       try {
-        const state = await loadDeletedDocVoteState(selectedId, voterId);
-        if (!cancelled) {
-          setUpvoteCount(state.upvotes);
-          setUserVoted(state.userVoted);
-          setDocumentUrl(state.sourceUrl);
+        const response = await fetch(
+          `/api/deleted-browser/file?id=${encodeURIComponent(normalizedEftaId)}`,
+          {
+            headers: { "x-voter-id": voterId },
+          },
+        );
+        if (!response.ok) {
+          if (!cancelled) {
+            setCanUpvote(false);
+            setUpvoteCount(0);
+            setUserVoted(false);
+          }
+          return;
         }
+        const payload = (await response.json()) as {
+          file?: { upvotes?: number; userVoted?: boolean };
+        };
+        if (cancelled) {
+          return;
+        }
+        setCanUpvote(true);
+        setUpvoteCount(typeof payload.file?.upvotes === "number" ? payload.file.upvotes : 0);
+        setUserVoted(Boolean(payload.file?.userVoted));
       } catch {
         if (!cancelled) {
+          setCanUpvote(false);
           setUpvoteCount(0);
           setUserVoted(false);
-          setDocumentUrl("");
         }
       }
     }
-    void loadUpvotes();
+    void loadVoteState();
     return () => {
       cancelled = true;
     };
-  }, [selectedId, voterId]);
+  }, [normalizedEftaId, voterId]);
+
+  async function onUpvoteDoc() {
+    if (!canUpvote || !normalizedEftaId || !voterId || userVoted || isVoting) {
+      return;
+    }
+    setIsVoting(true);
+    try {
+      const response = await fetch("/api/deleted-browser/upvote", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-voter-id": voterId,
+        },
+        body: JSON.stringify({
+          eftaId: normalizedEftaId,
+        }),
+      });
+      const payload = (await response.json()) as {
+        voteCount?: number;
+        alreadyVoted?: boolean;
+      };
+      if (!response.ok) {
+        return;
+      }
+      setUpvoteCount(
+        typeof payload.voteCount === "number" ? payload.voteCount : upvoteCount + 1,
+      );
+      setUserVoted(Boolean(payload.alreadyVoted) || true);
+    } finally {
+      setIsVoting(false);
+    }
+  }
 
   useEffect(() => {
-    if (!useCanvasRenderer) {
+    setPdfDoc(null);
+    setPageCount(0);
+    setRenderedPageLimit(0);
+    setFatalError(null);
+    setIsPdfLoading(true);
+    setZoom(1);
+    setRenderZoom(1);
+    canvasRefs.current.clear();
+    zoomRef.current = 1;
+    syncVisualZoom(1);
+  }, [sourceUrl]);
+
+  useEffect(() => {
+    if (isDesktopViewport) {
       return;
     }
     const element = wrapRef.current;
@@ -446,12 +252,12 @@ export default function DeletedDocsBrowserDebugClient() {
     const observer = new ResizeObserver(updateWidth);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [useCanvasRenderer]);
+  }, [isDesktopViewport]);
 
   useEffect(() => {
     zoomRef.current = zoom;
     syncVisualZoom(zoom);
-  }, [syncVisualZoom, zoom]);
+  }, [zoom]);
 
   useEffect(() => {
     if (isPinchingRef.current) {
@@ -476,7 +282,7 @@ export default function DeletedDocsBrowserDebugClient() {
   }, [renderZoom, zoom]);
 
   useEffect(() => {
-    if (!useCanvasRenderer) {
+    if (isDesktopViewport) {
       return;
     }
     const element = wrapRef.current;
@@ -586,7 +392,8 @@ export default function DeletedDocsBrowserDebugClient() {
         const targetLocalY = pinchAnchorRef.current.localY * ratio;
         element.scrollLeft = targetLocalX - stabilizedCenterOffsetX;
         element.scrollTop = targetLocalY - stabilizedCenterOffsetY;
-        setVisualZoom(nextZoom);
+        zoomRef.current = nextZoom;
+        syncVisualZoom(nextZoom);
         event.preventDefault();
         return;
       }
@@ -637,7 +444,6 @@ export default function DeletedDocsBrowserDebugClient() {
               ? prev
               : committedZoomCandidate,
           );
-          // Commit crisp rerender once pinch interaction ends.
           setRenderZoom((prev) =>
             Math.abs(prev - committedRenderZoom) < 0.01
               ? prev
@@ -718,36 +524,16 @@ export default function DeletedDocsBrowserDebugClient() {
         canvas.style.pointerEvents = "";
       });
     };
-  }, [setVisualZoom, useCanvasRenderer]);
+  }, [isDesktopViewport]);
 
   useEffect(() => {
-    setPdfDoc(null);
-    setPageCount(0);
-    setRenderedPageLimit(0);
-    setFatalError(null);
-    setIsPdfLoading(Boolean(selectedId));
-    setPreferNativeFallback(false);
-    setZoom(1);
-    setRenderZoom(1);
-    canvasRefs.current.clear();
-    zoomRef.current = 1;
-    syncVisualZoom(1);
-    pushLog(`Selected debug file: ${selectedId}`);
-  }, [pushLog, selectedId, syncVisualZoom]);
-
-  useEffect(() => {
-    if (!useCanvasRenderer || isDesktopViewport) {
+    if (isDesktopViewport) {
       return;
     }
-    if (!pdfSourceUrl) {
-      return;
-    }
-
     let cancelled = false;
-    const loadingTask = pdfjsLib.getDocument(pdfSourceUrl);
+    const loadingTask = pdfjsLib.getDocument(sourceUrl);
     setFatalError(null);
     setIsPdfLoading(true);
-    pushLog(`Loading PDF document: ${pdfSourceUrl}`);
 
     loadingTask.promise
       .then((doc) => {
@@ -760,25 +546,14 @@ export default function DeletedDocsBrowserDebugClient() {
         setRenderedPageLimit(
           Math.min(RENDER_CHUNK_SIZE, Math.max(0, typed.numPages || 0)),
         );
-        setPreferNativeFallback(false);
         setIsPdfLoading(false);
-        pushLog(`PDF loaded: numPages=${typed.numPages || 0}`);
       })
       .catch((error) => {
-        void (async () => {
-          if (cancelled) {
-            return;
-          }
-          const message = String(error);
-          const probe = await diagnosePdfSource(pdfSourceUrl);
-          if (cancelled) {
-            return;
-          }
-          const combined = `${message} | ${probe}`;
-          setFatalError(combined);
-          setIsPdfLoading(false);
-          pushLog(`PDF load failed: ${combined}`);
-        })();
+        if (cancelled) {
+          return;
+        }
+        setFatalError(String(error));
+        setIsPdfLoading(false);
       });
 
     return () => {
@@ -786,13 +561,13 @@ export default function DeletedDocsBrowserDebugClient() {
       try {
         loadingTask.destroy();
       } catch {
-        // Ignore cleanup errors for debug page.
+        // Ignore cleanup errors.
       }
     };
-  }, [isDesktopViewport, pdfSourceUrl, pushLog, useCanvasRenderer]);
+  }, [isDesktopViewport, sourceUrl]);
 
   useEffect(() => {
-    if (!useCanvasRenderer || isDesktopViewport) {
+    if (isDesktopViewport) {
       return;
     }
     if (pageCount < 1 || renderedPageLimit >= pageCount) {
@@ -822,24 +597,17 @@ export default function DeletedDocsBrowserDebugClient() {
     );
     observer.observe(target);
     return () => observer.disconnect();
-  }, [isDesktopViewport, pageCount, renderedPageLimit, useCanvasRenderer]);
+  }, [isDesktopViewport, pageCount, renderedPageLimit]);
 
   useEffect(() => {
-    if (!useCanvasRenderer || isDesktopViewport) {
-      return;
-    }
-    if (!pdfDoc || renderedPageLimit < 1) {
+    if (isDesktopViewport || !pdfDoc || renderedPageLimit < 1) {
       return;
     }
     const doc = pdfDoc;
-
     let cancelled = false;
     const activeTasks: Array<{ cancel?: () => void }> = [];
 
-    async function renderAllPages() {
-      pushLog(
-        `Rendering pages 1-${renderedPageLimit}/${pageCount} targetWidth=${pageWidth} renderZoom=${renderZoom.toFixed(2)}`,
-      );
+    async function renderPages() {
       for (let pageNumber = 1; pageNumber <= renderedPageLimit; pageNumber += 1) {
         if (cancelled) {
           return;
@@ -854,7 +622,6 @@ export default function DeletedDocsBrowserDebugClient() {
         if (!canvas) {
           continue;
         }
-
         try {
           const pageProxy = await doc.getPage(pageNumber);
           const baseViewport = pageProxy.getViewport({ scale: 1 });
@@ -870,18 +637,14 @@ export default function DeletedDocsBrowserDebugClient() {
             ),
           );
           const renderViewport = pageProxy.getViewport({
-            // Keep CSS/layout size stable; increase only raster density for crispness.
             scale: displayScale * pixelRatio * renderZoom,
           });
-          // Render offscreen first so the visible canvas doesn't flash while rerendering.
           const scratchCanvas = document.createElement("canvas");
           scratchCanvas.width = Math.floor(renderViewport.width);
           scratchCanvas.height = Math.floor(renderViewport.height);
           const scratchContext = scratchCanvas.getContext("2d");
           if (!scratchContext) {
-            throw new Error(
-              `Page ${pageNumber}: failed to acquire offscreen 2d context`,
-            );
+            throw new Error(`Page ${pageNumber}: no offscreen 2d context`);
           }
           const renderTask = pageProxy.render({
             canvasContext: scratchContext,
@@ -889,7 +652,6 @@ export default function DeletedDocsBrowserDebugClient() {
           });
           activeTasks.push(renderTask);
           await renderTask.promise;
-
           if (cancelled) {
             return;
           }
@@ -907,16 +669,10 @@ export default function DeletedDocsBrowserDebugClient() {
           canvas.style.height = `${Math.floor(displayViewport.height)}px`;
           const visibleContext = canvas.getContext("2d");
           if (!visibleContext) {
-            throw new Error(
-              `Page ${pageNumber}: failed to acquire visible 2d context`,
-            );
+            throw new Error(`Page ${pageNumber}: no visible 2d context`);
           }
           visibleContext.setTransform(1, 0, 0, 1, 0, 0);
           visibleContext.drawImage(scratchCanvas, 0, 0);
-
-          pushLog(
-            `Rendered page ${pageNumber}/${pageCount} zoom=${zoomRef.current.toFixed(2)} rZoom=${renderZoom.toFixed(2)} dpr=${pixelRatio.toFixed(2)}`,
-          );
         } catch (error) {
           const cancellationName =
             typeof error === "object" && error !== null && "name" in error
@@ -927,205 +683,161 @@ export default function DeletedDocsBrowserDebugClient() {
             cancellationName === "RenderingCancelledException" ||
             cancellationMessage.includes("RenderingCancelledException");
           if (isRenderCancelled || cancelled) {
-            // Expected when a new render pass supersedes the previous one.
             continue;
           }
-          const message = String(error);
-          setFatalError(message);
-          pushLog(`Render failed page=${pageNumber}: ${message}`);
+          setFatalError(String(error));
           return;
         }
       }
-      pushLog("Render complete");
     }
 
-    void renderAllPages();
+    void renderPages();
     return () => {
       cancelled = true;
       for (const task of activeTasks) {
         try {
           task.cancel?.();
         } catch {
-          // Ignore cancellation errors for debug page.
+          // Ignore cancellation errors.
         }
       }
     };
-  }, [
-    isDesktopViewport,
-    pageWidth,
-    pageCount,
-    pdfDoc,
-    pushLog,
-    renderedPageLimit,
-    renderZoom,
-    useCanvasRenderer,
-  ]);
+  }, [isDesktopViewport, pageWidth, pdfDoc, renderedPageLimit, renderZoom]);
+
+  const desktopSrc = useMemo(() => withPdfZoom(sourceUrl), [sourceUrl]);
 
   return (
-    <main className="deleted-debug-root deleted-browser-mobile-shell">
-      <section className="panel detail-nav link-bar deleted-browser-desktop-only">
-        <div className="deleted-browser-nav-left">
-          <Link href="/" prefetch={false} className="table-link">
-            Back to Dashboard
-          </Link>
-          <Link
-            href="/deleted-docs-top-upvoted"
-            prefetch={false}
-            className="table-link"
-          >
-            View Top Upvoted
-          </Link>
-        </div>
-        <div className="deleted-browser-nav-right">
-          <Link
-            href="/deleted-docs-my-upvotes"
-            prefetch={false}
-            className="table-link link-right"
-          >
-            View My Upvotes
-          </Link>
-          <Link
-            href="/deleted-docs-bookmarks"
-            prefetch={false}
-            className="table-link"
-          >
-            View Bookmarks
-          </Link>
-        </div>
-      </section>
-      <div className="deleted-debug-topbar">
-        <ShareButton
-          className="deleted-debug-mobile-share-btn"
-          disabled={!selectedId}
-          url={shareUrl}
-          title={shareTitle}
-          text={shareText}
-        />
-        <Link
-          href="/"
-          prefetch={false}
-          className="deleted-debug-mobile-home-btn"
-          aria-label="Back to homepage"
+    <div
+      className={isDesktopViewport ? "pdf-modal-backdrop" : "doj-mobile-viewer-backdrop"}
+      onClick={onClose}
+      role="presentation"
+    >
+      {isDesktopViewport ? (
+        <section
+          className="pdf-modal panel"
+          role="dialog"
+          aria-modal="true"
+          aria-label={title || "PDF Preview"}
+          onClick={(event) => event.stopPropagation()}
         >
-          ×
-        </Link>
-        <div className="deleted-debug-top-main">
-          <div className="deleted-debug-meta">
-            <p className="deleted-debug-kicker">Deleted Docs Browser</p>
-            <p className="deleted-debug-fileline">{selectedId}</p>
-          </div>
-          <div className="deleted-debug-status">
-            <span className="deleted-debug-chip">
-              Dataset {DEBUG_DATASET_ID}
-            </span>
-            <span className="deleted-debug-chip">Deleted by DOJ</span>
-          </div>
-        </div>
-        <div className="deleted-debug-controls-row">
-          {/* <p className="deleted-debug-source">Future details section.</p> */}
-          <div className="deleted-debug-controls">
-            <div className="deleted-debug-zoom-group">
+          <header className="pdf-modal-head">
+            <h2>{title || "PDF Preview"}</h2>
+            <div className="pdf-modal-actions">
+              <ShareButton
+                className="bookmark-btn"
+                url={shareUrl}
+                title={shareTitle}
+                text={shareText}
+                label="↗"
+              />
               <button
                 type="button"
-                className="deleted-debug-btn"
-                disabled={
-                  historyIndex <= 0 ||
-                  isNavigatingDoc ||
-                  isPdfLoading ||
-                  !selectedId
-                }
-                onClick={onPreviousDoc}
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                className="deleted-debug-btn deleted-debug-btn-secondary"
-                disabled={!selectedId || !voterId || userVoted || isVoting}
+                className="bookmark-btn"
                 onClick={() => void onUpvoteDoc()}
+                disabled={!canUpvote || userVoted || isVoting}
+                aria-label="Upvote"
               >
                 ▲ {upvoteCount}
               </button>
-              <button
-                type="button"
-                className="deleted-debug-btn"
-                disabled={isNavigatingDoc || isPdfLoading || !selectedId}
-                onClick={() => void onNextDoc()}
-              >
-                Next
+              <button type="button" onClick={onClose}>
+                Close
               </button>
             </div>
+          </header>
+          <div className="pdf-modal-body">
+            <div className="pdf-modal-frame-wrap">
+              <iframe
+                src={desktopSrc}
+                title={title || "PDF Preview"}
+                className="pdf-modal-frame"
+              />
+            </div>
           </div>
-        </div>
-        {fatalError ? (
-          <p className="deleted-debug-error">error={fatalError}</p>
-        ) : null}
-      </div>
-
-      <div
-        ref={wrapRef}
-        className={`deleted-debug-pdf-scroll${useCanvasRenderer ? " deleted-debug-pdf-scroll-custom" : ""}`}
-      >
-        {useCanvasRenderer ? (
-          <div ref={transformRef} className="deleted-debug-transform">
-            {Array.from({ length: renderedPageLimit }, (_, idx) => {
-              const pageNumber = idx + 1;
-              return (
-                <div
-                  key={`debug-page-${pageNumber}`}
-                  className="deleted-debug-page"
-                >
-                  <canvas
-                    ref={(node) => {
-                      if (!node) {
-                        canvasRefs.current.delete(pageNumber);
-                        return;
-                      }
-                      canvasRefs.current.set(pageNumber, node);
-                    }}
-                  />
-                </div>
-              );
-            })}
-            {renderedPageLimit < pageCount ? (
-              <div ref={loadMoreRef} className="deleted-debug-page">
-                <p className="deleted-debug-error">
-                  Loading more pages... ({renderedPageLimit}/{pageCount})
-                </p>
+        </section>
+      ) : (
+        <section
+          className="doj-mobile-viewer-modal deleted-debug-root deleted-browser-mobile-shell"
+          role="dialog"
+          aria-modal="true"
+          aria-label={title || "Mobile PDF Viewer"}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="deleted-debug-topbar doj-mobile-viewer-topbar">
+            <ShareButton
+              className="deleted-debug-mobile-share-btn"
+              disabled={!shareUrl}
+              url={shareUrl}
+              title={shareTitle}
+              text={shareText}
+              label="↗"
+            />
+            <div className="deleted-debug-top-main">
+              <div className="deleted-debug-meta">
+                <p className="deleted-debug-kicker">{kicker}</p>
+                <p className="deleted-debug-fileline">{title || "PDF Viewer"}</p>
               </div>
-            ) : null}
-            {isPdfLoading && pageCount < 1 ? (
-              <p className="deleted-debug-error">Loading PDF pages...</p>
-            ) : null}
-            {!isPdfLoading && pageCount < 1 && !fatalError ? (
-              <button
-                type="button"
-                className="deleted-debug-btn deleted-debug-btn-secondary"
-                onClick={() => setPreferNativeFallback(true)}
-              >
-                Open Native PDF
-              </button>
-            ) : null}
+            </div>
+            <button
+              type="button"
+              className="deleted-debug-btn deleted-debug-btn-secondary"
+              disabled={!canUpvote || userVoted || isVoting}
+              onClick={() => void onUpvoteDoc()}
+              aria-label="Upvote"
+            >
+              ▲ {upvoteCount}
+            </button>
+            <button
+              type="button"
+              className="doj-mobile-viewer-close"
+              onClick={onClose}
+              aria-label="Close viewer"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
           </div>
-        ) : desktopPdfSourceUrl ? (
-          <object
-            className="deleted-debug-native-viewer"
-            data={desktopPdfSourceUrl}
-            type="application/pdf"
-            aria-label={selectedId ? `PDF ${selectedId}` : "PDF document"}
-            onLoad={() => setIsPdfLoading(false)}
+          <div
+            ref={wrapRef}
+            className="deleted-debug-pdf-scroll deleted-debug-pdf-scroll-custom"
           >
-            <p className="deleted-debug-error">
-              Unable to open inline PDF.{" "}
-              <a href={desktopPdfSourceUrl} target="_blank" rel="noreferrer">
-                Open PDF
-              </a>
-            </p>
-          </object>
-        ) : (
-          <p className="deleted-debug-error">Loading PDF...</p>
-        )}
-      </div>
-    </main>
+            <div ref={transformRef} className="deleted-debug-transform">
+              {Array.from({ length: renderedPageLimit }, (_, idx) => {
+                const pageNumber = idx + 1;
+                return (
+                  <div key={`mobile-page-${pageNumber}`} className="deleted-debug-page">
+                    <canvas
+                      ref={(node) => {
+                        if (!node) {
+                          canvasRefs.current.delete(pageNumber);
+                          return;
+                        }
+                        canvasRefs.current.set(pageNumber, node);
+                      }}
+                    />
+                  </div>
+                );
+              })}
+              {renderedPageLimit < pageCount ? (
+                <div ref={loadMoreRef} className="deleted-debug-page">
+                  <p className="deleted-debug-error">
+                    Loading more pages... ({renderedPageLimit}/{pageCount})
+                  </p>
+                </div>
+              ) : null}
+              {isPdfLoading && pageCount < 1 ? (
+                <p className="deleted-debug-error">Loading PDF pages...</p>
+              ) : null}
+              {fatalError ? (
+                <p className="deleted-debug-error">
+                  Unable to render PDF.{" "}
+                  <a href={sourceUrl} target="_blank" rel="noreferrer">
+                    Open PDF
+                  </a>
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
   );
 }

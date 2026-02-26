@@ -4,6 +4,7 @@ import {
   createQueryCacheDebug,
   getV2SearchResultPage,
   getQueryCacheHeaderValue,
+  recordV2SearchQuery,
   saveV2SearchResultPage,
   searchFiles
 } from "@/lib/db";
@@ -93,6 +94,9 @@ export async function POST(request: NextRequest) {
     });
 
     const responseText = await esResponse.text();
+    if (esResponse.ok && cacheKey?.query) {
+      await recordV2SearchQuery(cacheKey.query);
+    }
     if (esResponse.ok && cacheKey) {
       try {
         const parsedResponse = JSON.parse(responseText);

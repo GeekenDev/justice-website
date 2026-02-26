@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import MobileChunkedPdfModal from "@/components/mobile-chunked-pdf-modal";
 import GlobalNav from "@/components/global-nav";
 import { globalNavConfig } from "@/lib/global-nav-config";
 
@@ -52,6 +53,162 @@ function stripOuterQuotes(value: string) {
     return trimmed.slice(1, -1);
   }
   return trimmed;
+}
+
+// ----- TLD + Date helpers -----
+
+const TOP_TLDS = new Set(["gov", "com", "org", "net", "edu"]);
+
+function isTldToken(token: string) {
+  const t = token.trim().toLowerCase();
+  if (t.startsWith(".")) return TOP_TLDS.has(t.slice(1));
+  return TOP_TLDS.has(t);
+}
+
+// NOTE: no "/*" anywhere.
+function tldToQueryString(token: string): string | null {
+  const t = token.trim().toLowerCase();
+  const tld = (t.startsWith(".") ? t.slice(1) : t).replace(/[^a-z0-9]/g, "");
+  if (!tld) return null;
+
+  // Escape '.' for query_string. This is safe.
+  // Matches "... .gov" inside a URL-like token OR email domain.
+  return `(*\\.${tld} OR *@*\\.${tld})`;
+}
+
+// ---- date parsing/expansion ----
+
+// month name -> number
+const MONTHS: Record<string, number> = {
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12,
+};
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+// Convert 2-digit years: 00-29 -> 2000-2029, else 1900-1999
+function normalizeYear(yy: number) {
+  if (yy < 100) return yy <= 29 ? 2000 + yy : 1900 + yy;
+  return yy;
+}
+
+type ParsedDate = { y: number; m: number; d: number };
+
+function parseDateToken(token: string): ParsedDate | null {
+  const t = token.trim();
+
+  // 2019-05-20 or 2019/05/20
+  let m = t.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m) return { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) };
+
+  // 05/20/19 or 05/20/2019 or 5-20-2019
+  m = t.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2}|\d{4})$/);
+  if (m)
+    return { y: normalizeYear(Number(m[3])), m: Number(m[1]), d: Number(m[2]) };
+
+  // May 20, 2019 / May 20 2019 / May 20 19
+  m = t.match(
+    /^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{2}|\d{4})$/,
+  );
+  if (m) {
+    const mm = MONTHS[m[1].toLowerCase()];
+    if (!mm) return null;
+    return { y: normalizeYear(Number(m[3])), m: mm, d: Number(m[2]) };
+  }
+
+  // 20 May 2019
+  m = t.match(
+    /^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)(?:,)?\s+(\d{2}|\d{4})$/,
+  );
+  if (m) {
+    const mm = MONTHS[m[2].toLowerCase()];
+    if (!mm) return null;
+    return { y: normalizeYear(Number(m[3])), m: mm, d: Number(m[1]) };
+  }
+
+  return null;
+}
+
+function dateToVariants(d: ParsedDate) {
+  const yyyy = String(d.y);
+  const yy = yyyy.slice(-2);
+  const mm = pad2(d.m);
+  const dd = pad2(d.d);
+
+  // Common spellings
+  const monthNames = Object.entries(MONTHS)
+    .filter(([, num]) => num === d.m)
+    .map(([name]) => name)
+    // keep a few canonical names
+    .filter((name) => name.length >= 3);
+
+  // Prefer the full month and 3-letter month
+  const fullMonth = monthNames.find((x) => x.length > 3) ?? monthNames[0] ?? "";
+  const shortMonth = fullMonth
+    ? fullMonth.slice(0, 3)
+    : (monthNames[0]?.slice(0, 3) ?? "");
+
+  const variants = new Set<string>();
+
+  // numeric
+  variants.add(`${mm}/${dd}/${yyyy}`);
+  variants.add(`${d.m}/${d.d}/${yyyy}`);
+  variants.add(`${mm}/${dd}/${yy}`);
+  variants.add(`${d.m}/${d.d}/${yy}`);
+  variants.add(`${yyyy}-${mm}-${dd}`);
+  variants.add(`${yyyy}/${mm}/${dd}`);
+
+  // textual
+  if (fullMonth) {
+    const capFull = fullMonth[0].toUpperCase() + fullMonth.slice(1);
+    const capShort = shortMonth[0].toUpperCase() + shortMonth.slice(1);
+    variants.add(`${capFull} ${d.d}, ${yyyy}`);
+    variants.add(`${capFull} ${d.d} ${yyyy}`);
+    variants.add(`${capShort} ${d.d}, ${yyyy}`);
+    variants.add(`${capShort} ${d.d} ${yyyy}`);
+    variants.add(`${d.d} ${capFull} ${yyyy}`);
+    variants.add(`${d.d} ${capShort} ${yyyy}`);
+  }
+
+  return [...variants];
+}
+
+// produce a query_string OR clause for a date token
+function dateTokenToQueryString(token: string) {
+  const parsed = parseDateToken(token);
+  if (!parsed) return null;
+
+  // Escape slashes in query_string: forward slash is ok but keep safe
+  const variants = dateToVariants(parsed).map((v) =>
+    v.replace(/([+\-=&|><!(){}\[\]^"~*?:\\/])/g, "\\$1"),
+  );
+
+  // Join as ("a" OR "b" OR "c")
+  return `(${variants.map((v) => `"${v}"`).join(" OR ")})`;
 }
 
 function parseGoogleish(input: string): ParsedQuery {
@@ -190,11 +347,64 @@ function buildLexicalClause(
   }
 
   if (parsed.keywords.length > 0) {
-    const query = parsed.keywords.join(" ");
-    if (useFuzzy) {
+    // Expand trailing underscore to wildcard (EFTA_ -> EFTA_*)
+    const kws = parsed.keywords.map((k) => (k.endsWith("_") ? `${k}*` : k));
+    const raw = kws.join(" ");
+
+    // Special expansions
+    const tldClauses: string[] = [];
+    const dateClauses: string[] = [];
+    const normalTerms: string[] = [];
+
+    for (const k of kws) {
+      if (isTldToken(k)) {
+        const q = tldToQueryString(k);
+        if (q) tldClauses.push(q);
+        continue;
+      }
+      const dq = dateTokenToQueryString(stripOuterQuotes(k));
+      if (dq) {
+        dateClauses.push(dq);
+        continue;
+      }
+      normalTerms.push(k);
+    }
+
+    const hasWildcard = /[*?]/.test(raw);
+
+    // If we have special query_string clauses, use query_string so they actually work.
+    const needsQueryString =
+      hasWildcard || tldClauses.length > 0 || dateClauses.length > 0;
+
+    if (needsQueryString) {
+      // Build a query_string that combines:
+      // - normal terms (space implies AND with default_operator)
+      // - OR blocks for tld + dates
+      const parts: string[] = [];
+
+      if (normalTerms.length > 0) {
+        // Escape query_string reserved chars for normal terms except *?
+        const escaped = normalTerms
+          .map((t) => t.replace(/([+\-=&|><!(){}\[\]^"~:\\/])/g, "\\$1"))
+          .join(" ");
+        parts.push(escaped);
+      }
+
+      parts.push(...tldClauses);
+      parts.push(...dateClauses);
+
+      must.push({
+        query_string: {
+          query: parts.filter(Boolean).join(" AND "),
+          fields: ["content"],
+          analyze_wildcard: true,
+          default_operator: "AND",
+        },
+      });
+    } else if (useFuzzy) {
       must.push({
         multi_match: {
-          query,
+          query: normalTerms.join(" "),
           fields: ["content"],
           fuzziness: "AUTO",
           prefix_length: 2,
@@ -203,7 +413,9 @@ function buildLexicalClause(
         },
       });
     } else {
-      must.push({ match: { content: { query, operator: "and" } } });
+      must.push({
+        match: { content: { query: normalTerms.join(" "), operator: "and" } },
+      });
     }
   }
 
@@ -305,7 +517,65 @@ function buildHighlight(
     should.push({ match_phrase: { content: phrase } });
   }
   for (const keyword of parsed.keywords) {
+    // don't push match() for wildcard tokens
+    if (/[*?]/.test(keyword)) continue;
+    // don't push match() for .gov tokens either (handled by query_string below)
+    if (isTldToken(keyword)) continue;
+    // don't push match() for date tokens (handled by query_string below)
+    if (dateTokenToQueryString(stripOuterQuotes(keyword))) continue;
+
     should.push({ match: { content: { query: keyword, operator: "and" } } });
+  }
+
+  // Build one query_string for wildcard/tld/date highlighting if needed
+  const kws = parsed.keywords.map((k) => (k.endsWith("_") ? `${k}*` : k));
+  const tldClauses: string[] = [];
+  const dateClauses: string[] = [];
+  const normalTerms: string[] = [];
+
+  for (const k of kws) {
+    if (isTldToken(k)) {
+      const q = tldToQueryString(k);
+      if (q) tldClauses.push(q);
+      continue;
+    }
+    const dq = dateTokenToQueryString(stripOuterQuotes(k));
+    if (dq) {
+      dateClauses.push(dq);
+      continue;
+    }
+    normalTerms.push(k);
+  }
+
+  const raw = kws.join(" ");
+  const hasWildcard = /[*?]/.test(raw);
+  const needsQueryString =
+    hasWildcard || tldClauses.length > 0 || dateClauses.length > 0;
+
+  if (needsQueryString) {
+    const parts: string[] = [];
+
+    if (normalTerms.length > 0) {
+      const escaped = normalTerms
+        .map((t) => t.replace(/([+\-=&|><!(){}\[\]^"~:\\/])/g, "\\$1"))
+        .join(" ");
+      parts.push(escaped);
+    }
+
+    parts.push(...tldClauses);
+    parts.push(...dateClauses);
+
+    const q = parts.filter(Boolean).join(" AND ");
+    if (q) {
+      should.push({
+        query_string: {
+          query: q,
+          fields: ["content"],
+          analyze_wildcard: true,
+          default_operator: "AND",
+        },
+      });
+    }
   }
   for (const group of parsed.orGroups) {
     for (const term of group.terms) {
@@ -363,13 +633,6 @@ function renderHighlightedFragment(fragment: string) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
-}
-
-function withPdfZoom(url: string | null) {
-  if (!url) {
-    return "";
-  }
-  return `${url}${url.includes("#") ? "&" : "#"}page=1&view=FitH&zoom=page-width&scrollbar=1&pagemode=none`;
 }
 
 export default function SearchPage() {
@@ -1145,46 +1408,16 @@ export default function SearchPage() {
       )}
 
       {previewUrl && (
-        <div
-          className="pdf-modal-backdrop"
-          onClick={() => {
+        <MobileChunkedPdfModal
+          sourceUrl={previewUrl}
+          title={previewTitle || "PDF Preview"}
+          kicker="Advanced Search"
+          eftaId={previewTitle}
+          onClose={() => {
             setPreviewUrl(null);
             setPreviewTitle("");
           }}
-          role="presentation"
-        >
-          <section
-            className="pdf-modal panel"
-            role="dialog"
-            aria-modal="true"
-            aria-label={previewTitle || "PDF Preview"}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className="pdf-modal-head">
-              <h2>{previewTitle || "PDF Preview"}</h2>
-              <div className="pdf-modal-actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPreviewUrl(null);
-                    setPreviewTitle("");
-                  }}
-                >
-                  Close
-                </button>
-              </div>
-            </header>
-            <div className="pdf-modal-body">
-              <div className="pdf-modal-frame-wrap">
-                <iframe
-                  src={withPdfZoom(previewUrl)}
-                  title={previewTitle || "PDF Preview"}
-                  className="pdf-modal-frame"
-                />
-              </div>
-            </div>
-          </section>
-        </div>
+        />
       )}
     </main>
   );

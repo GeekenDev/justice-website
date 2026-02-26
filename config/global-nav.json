@@ -22,10 +22,6 @@
       "label": "DOJ Tools",
       "children": [
         {
-          "href": "/doj-search",
-          "label": "DOJ Search"
-        },
-        {
           "href": "/deleted-docs-browser",
           "label": "Browse Deleted Docs"
         },
