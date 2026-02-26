@@ -78,6 +78,13 @@ function asDate(value: string | null) {
   return date.toLocaleString();
 }
 
+function formatPageLabel(value: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "Unknown pages";
+  }
+  return `${formatNumber(value)} ${value === 1 ? "page" : "pages"}`;
+}
+
 function buildOriginalFileLink(row: FileRow) {
   if (!row.dataset || !row.file_path) {
     return null;
@@ -367,14 +374,13 @@ export default function HomePage() {
 
       <section className="results-layout">
         <article className="panel home-results-panel">
-          <header className="results-head">
+          <header className="results-head home-results-head">
             <h2>Results</h2>
-            <p>
+            <p className="home-results-meta-line">
               {loadingSearch
                 ? "Loading..."
-                : `${formatNumber(search.total)} matches`}{" "}
-              | Page {formatNumber(search.page)} of{" "}
-              {formatNumber(search.totalPages)}
+                : `${formatNumber(search.total)} results`}{" "}
+              {"\u2022"} Page {formatNumber(search.page)}
             </p>
           </header>
 
@@ -452,7 +458,7 @@ export default function HomePage() {
                             <span className="badge badge-muted">Hidden</span>
                           )}
                           {!row.altered && !row.deleted && !row.hidden && (
-                            <span className="badge badge-ok">Active</span>
+                            <span className="badge badge-ok">Original</span>
                           )}
                         </div>
                       </td>
@@ -488,59 +494,62 @@ export default function HomePage() {
               return (
                 <article
                   key={`${row.efta_id}-mobile`}
-                  className="mobile-result-card"
+                  className="mobile-result-card home-mobile-card"
                   onClick={() => void loadFileDetails(row.efta_id)}
                 >
-                  <div className="home-mobile-topline">
+                  <div className="home-mobile-line1">
                     <Link
                       href={`/file/${encodeURIComponent(row.efta_id)}`}
-                      className="table-link mobile-result-title"
+                      className="table-link mobile-result-title home-mobile-id"
                       onClick={(event) => event.stopPropagation()}
                     >
                       {row.efta_id}
                     </Link>
-                    <div className="home-mobile-pill-group">
-                      <span className={`badge ${statusClassName}`}>
-                        {statusLabel}
-                      </span>
-                      <span className="badge badge-accent">
-                        Dataset {row.dataset ?? "-"}
-                      </span>
-                      <span className="badge badge-accent">
-                        Pages {formatNumber(row.page_count)}
-                      </span>
-                    </div>
+                    <span
+                      className={`badge home-mobile-status ${statusClassName}`}
+                    >
+                      {statusLabel}
+                    </span>
                   </div>
-                  <p className="mobile-result-line home-mobile-links-line">
-                    <strong>Sources:</strong>{" "}
+                  <p className="mobile-result-line home-mobile-meta">
+                    Dataset {row.dataset ?? "-"}{" "}
+                    <span style={{ paddingInline: 4 }}>•</span>{" "}
+                    {formatPageLabel(row.page_count)}
+                  </p>
+                  <div className="home-mobile-line3">
                     {originalLink ? (
                       <a
                         href={originalLink}
                         target="_blank"
                         rel="noreferrer"
-                        className="table-link"
+                        className="home-mobile-action-btn"
+                        aria-label={`Open Archive for ${row.efta_id}`}
                         onClick={(event) => event.stopPropagation()}
                       >
-                        Archive Link
+                        Archive <span aria-hidden="true">↗</span>
                       </a>
                     ) : (
-                      "-"
+                      <span className="home-mobile-action-btn is-disabled">
+                        Archive
+                      </span>
                     )}
-                    {" | "}
                     {currentDojLink ? (
                       <a
                         href={currentDojLink}
                         target="_blank"
                         rel="noreferrer"
-                        className="table-link"
+                        className="home-mobile-action-btn"
+                        aria-label={`Open DOJ link for ${row.efta_id}`}
                         onClick={(event) => event.stopPropagation()}
                       >
-                        DOJ Link
+                        DOJ <span aria-hidden="true">↗</span>
                       </a>
                     ) : (
-                      "-"
+                      <span className="home-mobile-action-btn is-disabled">
+                        DOJ
+                      </span>
                     )}
-                  </p>
+                  </div>
                 </article>
               );
             })}

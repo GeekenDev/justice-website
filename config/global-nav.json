@@ -19,11 +19,11 @@
         },
         {
           "href": "/deleted-docs-browser",
-          "label": "Deleted Docs Browser"
+          "label": "Browse Deleted Docs"
         },
         {
           "href": "/deleted-docs-top-upvoted",
-          "label": "Top Deleted Upvotes"
+          "label": "Top Deleted"
         },
         {
           "href": "/api",
