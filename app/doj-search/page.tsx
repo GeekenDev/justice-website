@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { extractEftaId } from "@/lib/client/efta";
 
 type DOJSearchResult = {
@@ -250,72 +250,77 @@ export default function DOJSearchPage() {
     };
   }, [keys, showSuggestions]);
 
-  async function runSearch(
-    nextPage = 1,
-    queryOverride?: string,
-    options?: { append?: boolean },
-  ) {
-    const append = Boolean(options?.append);
-    const trimmedKeys = (queryOverride ?? (append ? activeQuery : keys)).trim();
-    if (!trimmedKeys) {
-      setError("Search query is required.");
-      return;
-    }
-    if (append && (isFetchingMoreRef.current || loadingMore)) {
-      return;
-    }
+  const runSearch = useCallback(
+    async (
+      nextPage = 1,
+      queryOverride?: string,
+      options?: { append?: boolean },
+    ) => {
+      const append = Boolean(options?.append);
+      const trimmedKeys = (
+        queryOverride ?? (append ? activeQuery : keys)
+      ).trim();
+      if (!trimmedKeys) {
+        setError("Search query is required.");
+        return;
+      }
+      if (append && (isFetchingMoreRef.current || loadingMore)) {
+        return;
+      }
 
-    if (append) {
-      isFetchingMoreRef.current = true;
-      setLoadingMore(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
-    try {
-      const nextQuery = new URLSearchParams({
-        keys: trimmedKeys,
-        page: String(nextPage),
-      }).toString();
-      const responseWithVoter = await fetch(`/api/doj-search?${nextQuery}`, {
-        headers: voterId ? { "x-voter-id": voterId } : {},
-      });
-      const payload = (await responseWithVoter.json()) as DOJSearchResponse;
-      if (!responseWithVoter.ok) {
-        throw new Error(payload.error || "DOJ search request failed");
-      }
       if (append) {
-        setData((prev) => {
-          if (!prev) {
-            return payload;
-          }
-          const seen = new Set(prev.results.map((item) => item.url));
-          const appended = payload.results.filter(
-            (item) => !seen.has(item.url),
-          );
-          const mergedResults = [...prev.results, ...appended];
-          return {
-            ...payload,
-            results: mergedResults,
-            resultCount: mergedResults.length,
-          };
+        isFetchingMoreRef.current = true;
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+      try {
+        const nextQuery = new URLSearchParams({
+          keys: trimmedKeys,
+          page: String(nextPage),
+        }).toString();
+        const responseWithVoter = await fetch(`/api/doj-search?${nextQuery}`, {
+          headers: voterId ? { "x-voter-id": voterId } : {},
         });
-      } else {
-        setData(payload);
+        const payload = (await responseWithVoter.json()) as DOJSearchResponse;
+        if (!responseWithVoter.ok) {
+          throw new Error(payload.error || "DOJ search request failed");
+        }
+        if (append) {
+          setData((prev) => {
+            if (!prev) {
+              return payload;
+            }
+            const seen = new Set(prev.results.map((item) => item.url));
+            const appended = payload.results.filter(
+              (item) => !seen.has(item.url),
+            );
+            const mergedResults = [...prev.results, ...appended];
+            return {
+              ...payload,
+              results: mergedResults,
+              resultCount: mergedResults.length,
+            };
+          });
+        } else {
+          setData(payload);
+        }
+        setPage(nextPage);
+        setActiveQuery(trimmedKeys);
+      } catch (err) {
+        setError(String(err));
+      } finally {
+        if (append) {
+          setLoadingMore(false);
+          isFetchingMoreRef.current = false;
+        } else {
+          setLoading(false);
+        }
       }
-      setPage(nextPage);
-      setActiveQuery(trimmedKeys);
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      if (append) {
-        setLoadingMore(false);
-        isFetchingMoreRef.current = false;
-      } else {
-        setLoading(false);
-      }
-    }
-  }
+    },
+    [activeQuery, keys, loadingMore, voterId],
+  );
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -375,7 +380,7 @@ export default function DOJSearchPage() {
     );
     observer.observe(target);
     return () => observer.disconnect();
-  }, [activeQuery, data, loading, loadingMore, page]);
+  }, [activeQuery, data, loading, loadingMore, page, runSearch]);
 
   useEffect(() => {
     if (!previewUrl && !mobileViewerUrl) {
