@@ -683,6 +683,16 @@ export default function DOJSearchPage() {
         </p>
       </section>
 
+      <section className="panel announcement-banner">
+        <p>
+          New: Try our advanced search experience with hybrid ranking, syntax
+          filters, and richer highlights.
+        </p>
+        <Link href="/search" className="table-link">
+          Open Advanced Search
+        </Link>
+      </section>
+
       <section className="panel detail-nav link-bar">
         <Link href="/" className="table-link">
           Back to Dashboard

@@ -377,6 +377,7 @@ export default function SearchPage() {
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const isFetchingMoreRef = useRef(false);
   const [query, setQuery] = useState("");
+  // const [status, setStatus] = useState("idle");
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -389,15 +390,22 @@ export default function SearchPage() {
 
   const [useHybrid, setUseHybrid] = useState(false);
   const [requirePhrases, setRequirePhrases] = useState(true);
-  const [useFuzzy, setUseFuzzy] = useState(true);
+  const [useFuzzy, setUseFuzzy] = useState(false);
   const [pageSize, setPageSize] = useState(20);
-  const [highlightMax, setHighlightMax] = useState(1_000_000);
+  const [highlightMax, setHighlightMax] = useState(5_000_000);
   const [trackTotal, setTrackTotal] = useState("true");
   const [from, setFrom] = useState(0);
   const [showSyntaxHelp, setShowSyntaxHelp] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState("");
+  const [expandedSnippets, setExpandedSnippets] = useState<
+    Record<string, boolean>
+  >({});
+  const snippetRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [snippetHasOverflow, setSnippetHasOverflow] = useState<
+    Record<string, boolean>
+  >({});
 
   const totalHits = useMemo(() => {
     const total = results?.hits?.total;
@@ -466,6 +474,7 @@ export default function SearchPage() {
       const q = (queryOverride ?? (append ? activeQuery : query)).trim();
       if (!q) {
         setError("Enter a query.");
+        // setStatus("idle");
         return;
       }
 
@@ -523,6 +532,7 @@ export default function SearchPage() {
             suggest,
           };
 
+      // setStatus("searching");
       setError(null);
       if (append) {
         isFetchingMoreRef.current = true;
@@ -572,10 +582,14 @@ export default function SearchPage() {
           });
         } else {
           setResults(payload);
+          setExpandedSnippets({});
+          setSnippetHasOverflow({});
         }
         setActiveQuery(q);
         setFrom(nextFrom);
+        // setStatus("done");
       } catch (err) {
+        // setStatus("error");
         setError(
           `${String(err)}\n\nNotes:\n- If Hybrid is enabled but index lacks semantic fields, disable Hybrid.\n- If highlights are missing on long docs, increase highlight max analyzed chars.`,
         );
@@ -641,6 +655,31 @@ export default function SearchPage() {
     runSearch,
     totalHits,
   ]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setSnippetHasOverflow((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const [key, element] of Object.entries(snippetRefs.current)) {
+          if (!element) {
+            continue;
+          }
+          const isCollapsed = element.classList.contains("is-collapsed");
+          if (!isCollapsed) {
+            continue;
+          }
+          const hasOverflow = element.scrollHeight > element.clientHeight + 1;
+          if (next[key] !== hasOverflow) {
+            next[key] = hasOverflow;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [expandedSnippets, hits.length, results]);
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -980,11 +1019,12 @@ export default function SearchPage() {
               const src = hit._source ?? {};
               const fragments = hit.highlight?.content ?? [];
               const eftaId = src.doc_id ?? "";
+              const resultKey = getHitKey(hit, index);
+              const isExpanded = Boolean(expandedSnippets[resultKey]);
+              const hasOverflow = Boolean(snippetHasOverflow[resultKey]);
+              const snippetClassName = `search-v2-snippet ${isExpanded ? "is-expanded" : "is-collapsed"}`;
               return (
-                <article
-                  className="search-v2-hit"
-                  key={`${hit._id ?? "hit"}-${index}`}
-                >
+                <article className="search-v2-hit" key={resultKey}>
                   <header className="search-v2-hit-head">
                     <h3>
                       {eftaId ? (
@@ -1016,8 +1056,39 @@ export default function SearchPage() {
                       ) : null}
                     </div>
                   </header>
-                  <div className="search-v2-hit-body">
-                    <div className="search-v2-snippet">
+                  <div
+                    role={hasOverflow ? "button" : undefined}
+                    tabIndex={hasOverflow ? 0 : undefined}
+                    aria-expanded={hasOverflow ? isExpanded : undefined}
+                    onClick={() => {
+                      if (!hasOverflow) {
+                        return;
+                      }
+                      setExpandedSnippets((prev) => ({
+                        ...prev,
+                        [resultKey]: !isExpanded,
+                      }));
+                    }}
+                    onKeyDown={(event) => {
+                      if (!hasOverflow) {
+                        return;
+                      }
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setExpandedSnippets((prev) => ({
+                          ...prev,
+                          [resultKey]: !isExpanded,
+                        }));
+                      }
+                    }}
+                    className={`search-v2-hit-body ${hasOverflow ? "is-toggleable" : ""}`}
+                  >
+                    <div
+                      ref={(element) => {
+                        snippetRefs.current[resultKey] = element;
+                      }}
+                      className={snippetClassName}
+                    >
                       {fragments.length > 0 ? (
                         fragments.map((fragment, fragmentIndex) => (
                           <p key={`f-${fragmentIndex}`}>
@@ -1031,6 +1102,23 @@ export default function SearchPage() {
                         <p>(no highlight fragments)</p>
                       )}
                     </div>
+                    {fragments.length > 0 && hasOverflow && (
+                      <p
+                        className="search-v2-more-indicator"
+                        style={{
+                          fontSize: 14,
+                          marginTop: 20,
+                          background: "rgba(255, 255, 255, 0.08)",
+                          borderRadius: 4,
+                          padding: "4px 8px",
+                          display: "block",
+                          textAlign: "center",
+                          color: "#ddd",
+                        }}
+                      >
+                        {isExpanded ? "Show less" : "(expand to see more)"}
+                      </p>
+                    )}
                   </div>
                 </article>
               );

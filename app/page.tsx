@@ -276,6 +276,16 @@ export default function HomePage() {
         </p>
       </section>
 
+      <section className="panel announcement-banner">
+        <p>
+          New: Try our advanced search experience with hybrid ranking, syntax
+          filters, and richer highlights.
+        </p>
+        <Link href="/search" className="table-link">
+          Open Advanced Search
+        </Link>
+      </section>
+
       <GlobalNav
         items={globalNavConfig.items}
         mobileTitle={globalNavConfig.mobileTitle}

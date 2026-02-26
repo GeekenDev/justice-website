@@ -3,6 +3,14 @@
   "initiallyExpandedGroups": ["DOJ Tools"],
   "items": [
     {
+      "href": "/",
+      "label": "Dashboard"
+    },
+    {
+      "href": "/search",
+      "label": "Advanced Search"
+    },
+    {
       "href": "/overview",
       "label": "Overview"
     },
