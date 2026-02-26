@@ -41,6 +41,9 @@ type DOJSearchSuggestionRow = {
 type DOJSearchResultPageRow = {
   result_page: unknown;
 };
+type V2SearchResultPageRow = {
+  result_page: unknown;
+};
 
 type DOJSearchResultVoteRow = {
   result_url: string;
@@ -800,6 +803,19 @@ async function ensureDeletedDocBlacklistTable(client: Client) {
       efta_id TEXT PRIMARY KEY,
       reason TEXT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+async function ensureV2SearchResultPagesTable(client: Client) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS search_v2_result_pages (
+      query_text TEXT NOT NULL,
+      page_number INTEGER NOT NULL,
+      result_page JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (query_text, page_number)
     )
   `);
 }
@@ -2020,6 +2036,68 @@ export async function getDojSearchResultPage(params: {
       `
       SELECT result_page
       FROM doj_search_result_pages
+      WHERE query_text = $1
+        AND page_number = $2
+      LIMIT 1
+      `,
+      [query, page],
+    );
+    if (result.rows.length === 0) {
+      return null;
+    }
+    return result.rows[0].result_page ?? null;
+  });
+}
+
+export async function saveV2SearchResultPage(params: {
+  query: string;
+  page: number;
+  payload: unknown;
+}) {
+  const query = params.query;
+  const page = Math.max(1, Math.floor(params.page));
+  if (!query || page < 1) {
+    return;
+  }
+
+  await withClient(async (client) => {
+    await ensureV2SearchResultPagesTable(client);
+    await client.query(
+      `
+      INSERT INTO search_v2_result_pages (
+        query_text,
+        page_number,
+        result_page,
+        created_at,
+        updated_at
+      )
+      VALUES ($1, $2, $3::jsonb, NOW(), NOW())
+      ON CONFLICT (query_text, page_number) DO UPDATE
+      SET
+        result_page = EXCLUDED.result_page,
+        updated_at = NOW()
+      `,
+      [query, page, JSON.stringify(params.payload ?? null)],
+    );
+  });
+}
+
+export async function getV2SearchResultPage(params: {
+  query: string;
+  page: number;
+}) {
+  const query = params.query;
+  const page = Math.max(1, Math.floor(params.page));
+  if (!query || page < 1) {
+    return null;
+  }
+
+  return withClient(async (client) => {
+    await ensureV2SearchResultPagesTable(client);
+    const result = await client.query<V2SearchResultPageRow>(
+      `
+      SELECT result_page
+      FROM search_v2_result_pages
       WHERE query_text = $1
         AND page_number = $2
       LIMIT 1
