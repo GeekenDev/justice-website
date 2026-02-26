@@ -247,9 +247,18 @@ export async function GET(request: NextRequest) {
   const cached = await getDojSearchResultPage({ query: keys, page });
   if (cached && typeof cached === "object") {
     const cachedPayload = cached as {
+      ok?: boolean;
+      blocked?: boolean;
       results?: DoiSearchResult[];
       [key: string]: unknown;
     };
+    const canUseCached =
+      cachedPayload.ok === true && cachedPayload.blocked !== true;
+    if (!canUseCached) {
+      console.log(
+        `[doj-search] cache-skip query="${keys}" page=${page} reason=blocked-or-invalid`,
+      );
+    } else {
     const cachedResults = Array.isArray(cachedPayload.results)
       ? cachedPayload.results
       : [];
@@ -277,6 +286,7 @@ export async function GET(request: NextRequest) {
       results: resultsWithSignals,
       resultCount: resultsWithSignals.length,
     });
+    }
   }
 
   try {
@@ -420,11 +430,13 @@ export async function GET(request: NextRequest) {
       totalPages: null,
       status: response.status,
     };
-    await saveDojSearchResultPage({
-      query: keys,
-      page,
-      payload: responsePayload,
-    });
+    if (responsePayload.ok && !responsePayload.blocked) {
+      await saveDojSearchResultPage({
+        query: keys,
+        page,
+        payload: responsePayload,
+      });
+    }
     console.log(
       `[doj-search] remote-fetch(html) query="${keys}" page=${page} results=${resultsWithVotes.length}`,
     );
