@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { extractEftaId } from "@/lib/client/efta";
 
 type DOJSearchResult = {
@@ -61,7 +61,9 @@ function getDocumentStatus(result: DOJSearchResult) {
   return result.documentStatus ?? "Original";
 }
 
-function getDocumentStatusBadgeClass(status: "Original" | "Altered" | "Deleted") {
+function getDocumentStatusBadgeClass(
+  status: "Original" | "Altered" | "Deleted",
+) {
   if (status === "Deleted") {
     return "badge-danger";
   }
@@ -254,9 +256,7 @@ export default function DOJSearchPage() {
     options?: { append?: boolean },
   ) {
     const append = Boolean(options?.append);
-    const trimmedKeys = (
-      queryOverride ?? (append ? activeQuery : keys)
-    ).trim();
+    const trimmedKeys = (queryOverride ?? (append ? activeQuery : keys)).trim();
     if (!trimmedKeys) {
       setError("Search query is required.");
       return;
@@ -290,7 +290,9 @@ export default function DOJSearchPage() {
             return payload;
           }
           const seen = new Set(prev.results.map((item) => item.url));
-          const appended = payload.results.filter((item) => !seen.has(item.url));
+          const appended = payload.results.filter(
+            (item) => !seen.has(item.url),
+          );
           const mergedResults = [...prev.results, ...appended];
           return {
             ...payload,
@@ -842,7 +844,9 @@ export default function DOJSearchPage() {
                       {(() => {
                         const status = getDocumentStatus(result);
                         return (
-                          <span className={`badge ${getDocumentStatusBadgeClass(status)}`}>
+                          <span
+                            className={`badge ${getDocumentStatusBadgeClass(status)}`}
+                          >
                             {status}
                           </span>
                         );
@@ -908,7 +912,9 @@ export default function DOJSearchPage() {
                   {(() => {
                     const status = getDocumentStatus(result);
                     return (
-                      <span className={`badge ${getDocumentStatusBadgeClass(status)}`}>
+                      <span
+                        className={`badge ${getDocumentStatusBadgeClass(status)}`}
+                      >
                         {status}
                       </span>
                     );
@@ -948,10 +954,18 @@ export default function DOJSearchPage() {
               <p className="empty">No parsed results found.</p>
             )}
           </div>
-          {!data.blocked && typeof data.totalPages === "number" && page < data.totalPages && (
-            <div ref={loadMoreRef} className="results-infinite-trigger" aria-hidden="true" />
+          {!data.blocked &&
+            typeof data.totalPages === "number" &&
+            page < data.totalPages && (
+              <div
+                ref={loadMoreRef}
+                className="results-infinite-trigger"
+                aria-hidden="true"
+              />
+            )}
+          {loadingMore && (
+            <p className="results-infinite-status">Loading more results...</p>
           )}
-          {loadingMore && <p className="results-infinite-status">Loading more results...</p>}
           {!loadingMore &&
             !loading &&
             !data.blocked &&
