@@ -328,6 +328,24 @@ function pushFlagFilter(
   }
 }
 
+function normalizeEftaSearchQuery(query: string) {
+  const compact = query.trim().replace(/[\s-]+/g, "").toUpperCase();
+  if (!compact) {
+    return "";
+  }
+
+  if (/^\d+$/.test(compact)) {
+    return `EFTA${compact}`;
+  }
+
+  const eftaMatch = compact.match(/^EFTA(\d+)$/);
+  if (eftaMatch) {
+    return `EFTA${eftaMatch[1]}`;
+  }
+
+  return compact;
+}
+
 export function createQueryCacheDebug(): QueryCacheDebug {
   return {
     mode: "disabled",
@@ -416,12 +434,12 @@ export async function searchFiles(
 
   const where: string[] = [];
   const values: unknown[] = [];
-  const searchQuery = params.q?.trim() || "";
+  const searchQuery = normalizeEftaSearchQuery(params.q || "");
   const hasSearchQuery = searchQuery.length > 0;
 
   if (hasSearchQuery) {
-    values.push(`${searchQuery}%`);
-    where.push(`f.efta_id ILIKE $${values.length}`);
+    values.push(searchQuery);
+    where.push(`f.efta_id = $${values.length}`);
   } else {
     where.push(`(f.parent_efta_id IS NULL OR btrim(f.parent_efta_id) = '')`);
   }
