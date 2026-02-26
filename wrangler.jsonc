@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "main": "worker.mjs",
+  "name": "doj-files",
+  // Set this to today's date
+  "compatibility_date": "2026-02-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "SITE_URL": "https://justice.geeken.dev",
+  },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"],
+  },
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+  },
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "f83bc6e5cba44cf69b3b9ee659e01d8d",
+      // Keep secrets out of source control:
+      // set CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE in your shell/.dev.vars for local wrangler dev.
+    },
+    {
+      "binding": "HYPERDRIVE_NO_CACHE",
+      "id": "3f718e896f60459d8810ba32b7069eac",
+      // set CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE_NO_CACHE in .dev.vars for local dev.
+    },
+  ],
+}

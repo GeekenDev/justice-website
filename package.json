@@ -1,0 +1,40 @@
+{
+  "name": "epstein-files-website",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "prebuild": "npm run sitemap:build",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "dotenv -e .dev.vars -- opennextjs-cloudflare build && dotenv -e .dev.vars -- opennextjs-cloudflare deploy",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
+    "sitemap:build": "node scripts/generate-sitemaps-build.mjs",
+    "sitemap:build:force": "node scripts/generate-sitemaps-build.mjs --force",
+    "kv:flush": "node scripts/flush-query-cache-kv.mjs",
+    "kv:flush:dry-run": "node scripts/flush-query-cache-kv.mjs --dry-run",
+    "watch:queries": "dotenv -e .dev.vars -- node scripts/watch-latest-search-queries.mjs"
+  },
+  "dependencies": {
+    "@opennextjs/cloudflare": "^1.16.5",
+    "@scalar/nextjs-api-reference": "^0.9.23",
+    "next": "^15.3.9",
+    "pdfjs-dist": "^3.11.174",
+    "pg": "^8.18.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.16.0",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "dotenv-cli": "^11.0.0",
+    "eslint": "^9.16.0",
+    "eslint-config-next": "15.1.6",
+    "typescript": "^5.7.2",
+    "wrangler": "^4.68.0"
+  }
+}
