@@ -43,13 +43,17 @@ export async function GET(request: NextRequest) {
       results: parsedRows.map(({ row, parsed }) => ({
         ...row,
         sources: (() => {
-          if (!parsed.eftaId || !parsed.dataset) {
+          if (!parsed.eftaId) {
             return { original_link: null, doj_link: null };
           }
           const fromDb = sourceLookups[parsed.eftaId];
+          const resolvedDataset = fromDb?.dataset ?? parsed.dataset;
+          if (!resolvedDataset) {
+            return { original_link: null, doj_link: null };
+          }
           const sourceInput = {
             efta_id: parsed.eftaId,
-            dataset: fromDb?.dataset ?? parsed.dataset,
+            dataset: resolvedDataset,
             file_path: fromDb?.file_path ?? row.file_name ?? null,
           };
           return {

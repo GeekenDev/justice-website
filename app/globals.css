@@ -1921,6 +1921,10 @@ tr:hover td {
   -webkit-overflow-scrolling: auto;
 }
 
+.deleted-debug-pdf-scroll-native {
+  overflow: hidden;
+}
+
 .deleted-debug-native-viewer {
   display: block;
   width: 100%;
@@ -2059,7 +2063,7 @@ tr:hover td {
   }
 
   .deleted-debug-native-viewer {
-    min-height: 70vh;
+    min-height: 0;
   }
 
   .deleted-browser-mobile-shell .link-bar.deleted-browser-desktop-only {
@@ -2476,6 +2480,52 @@ tr:hover td {
     margin-top: 0.75rem;
     padding-top: 0.75rem;
     border-top: 1px solid var(--line);
+  }
+
+  .search-v2-toggle-btn {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .search-v2-help-rows p {
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .search-v2-help-rows p span {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+
+  .search-v2-help-rows p code {
+    display: inline-block;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .search-v2-settings-grid .search-v2-switch {
+    min-width: 0;
+  }
+
+  .search-v2-settings-grid .search-v2-switch span {
+    min-width: 0;
+  }
+
+  .search-v2-select-row label {
+    min-width: 0;
+  }
+
+  .search-v2-setting-label {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .search-v2-select-row select {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .search-v2-pagination {

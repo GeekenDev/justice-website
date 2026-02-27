@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import { Client } from "pg";
 
-const DEFAULT_INTERVAL_MS = 30_000;
-const DEFAULT_LIMIT = 10;
+const DEFAULT_INTERVAL_MS = 2000;
+const DEFAULT_LIMIT = 250;
 
 function parseArgs(argv) {
   const args = {
     intervalMs: DEFAULT_INTERVAL_MS,
     limit: DEFAULT_LIMIT,
-    once: false,
+    replayLatest: false,
     help: false,
   };
 
@@ -26,8 +26,8 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
-    if (arg === "--once") {
-      args.once = true;
+    if (arg === "--replay-latest") {
+      args.replayLatest = true;
       continue;
     }
     if (arg === "--help" || arg === "-h") {
@@ -41,22 +41,20 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Watch latest successful DOJ search queries every 30s.
+  console.log(`Watch query activity via DB polling (append-only tail style).
 
 Usage:
   node scripts/watch-latest-search-queries.mjs [options]
 
 Options:
-  --interval-ms <n>   Poll interval in milliseconds (default: 30000)
-  --limit <n>         Number of latest queries to show (default: 10)
-  --once              Run one poll and exit
+  --interval-ms <n>   Poll interval in ms (default: 2000)
+  --limit <n>         Rows fetched per poll (default: 250)
+  --replay-latest     Print current latest rows once, then continue tailing
   --help, -h          Show help
 
-Connection env fallback order:
-  POSTGRES_URL
-  DATABASE_URL
-  CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE
-  CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE_NO_CACHE
+Tracks:
+  - DOJ search queries (doj_search_queries)
+  - Advanced search queries (search_v2_queries)
 `);
 }
 
@@ -71,7 +69,7 @@ function parseSsl(connectionString) {
       return { rejectUnauthorized: false };
     }
   } catch {
-    // Fall through to permissive SSL for managed Postgres.
+    // fall through
   }
   return { rejectUnauthorized: false };
 }
@@ -94,35 +92,41 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function pollLatestQueries(limit) {
-  const connectionString = getConnectionString();
-  if (!connectionString) {
-    throw new Error("Missing DB connection string in environment.");
-  }
+function safeDateMs(value) {
+  const ms = Date.parse(value || "");
+  return Number.isFinite(ms) ? ms : 0;
+}
 
-  const client = new Client({
-    connectionString,
-    ssl: parseSsl(connectionString),
-  });
+function formatEventLabel(source) {
+  return source === "advanced" ? "ADVANCED SEARCH" : "DOJSEARCH";
+}
 
-  await client.connect();
-  try {
-    const result = await client.query(
-      `
+async function fetchLatestRows(client, limit) {
+  const result = await client.query(
+    `
+    WITH combined AS (
       SELECT
+        'doj'::text AS source,
         query_text,
         hit_count,
         last_success_at::text AS last_success_at
       FROM doj_search_queries
-      ORDER BY last_success_at DESC
-      LIMIT $1
-      `,
-      [limit],
-    );
-    return result.rows;
-  } finally {
-    await client.end();
-  }
+      UNION ALL
+      SELECT
+        'advanced'::text AS source,
+        query_text,
+        hit_count,
+        last_success_at::text AS last_success_at
+      FROM search_v2_queries
+    )
+    SELECT source, query_text, hit_count, last_success_at
+    FROM combined
+    ORDER BY last_success_at DESC
+    LIMIT $1
+    `,
+    [limit],
+  );
+  return result.rows;
 }
 
 async function main() {
@@ -138,8 +142,19 @@ async function main() {
     throw new Error("--limit must be a positive number.");
   }
 
+  const connectionString = getConnectionString();
+  if (!connectionString) {
+    throw new Error("Missing DB connection string in environment.");
+  }
+
+  const client = new Client({
+    connectionString,
+    ssl: parseSsl(connectionString),
+  });
+  await client.connect();
+
   console.log(
-    `[query-watch ${now()}] starting: intervalMs=${Math.floor(args.intervalMs)} limit=${Math.floor(args.limit)} once=${args.once}`,
+    `[query-watch ${now()}] tailing via DB poll intervalMs=${Math.floor(args.intervalMs)} limit=${Math.floor(args.limit)} replayLatest=${args.replayLatest}`,
   );
 
   let keepRunning = true;
@@ -152,28 +167,53 @@ async function main() {
     console.log(`[query-watch ${now()}] stopping (SIGTERM)`);
   });
 
-  while (keepRunning) {
-    try {
-      const rows = await pollLatestQueries(Math.floor(args.limit));
-      console.log(`[query-watch ${now()}] latest successful queries`);
-      if (rows.length === 0) {
-        console.log("  (no rows)");
-      } else {
-        rows.forEach((row, index) => {
-          const hits = Number(row.hit_count) || 0;
-          console.log(
-            `  ${String(index + 1).padStart(2, " ")}. ${row.last_success_at} | hits=${hits} | ${row.query_text}`,
-          );
-        });
+  try {
+    const seen = new Map();
+
+    const bootstrapRows = await fetchLatestRows(client, Math.floor(args.limit));
+    for (const row of bootstrapRows) {
+      const key = `${row.source}::${row.query_text}`;
+      const lastMs = safeDateMs(row.last_success_at);
+      const hitCount = Number(row.hit_count) || 0;
+      seen.set(key, { lastMs, hitCount });
+      if (args.replayLatest) {
+        const label = formatEventLabel(row.source);
+        const pageSuffix = "";
+        console.log(
+          `[${now()}] ${label}: "${row.query_text}"${pageSuffix} hits=${hitCount} @ ${row.last_success_at}`,
+        );
       }
-    } catch (error) {
-      console.error(`[query-watch ${now()}] error: ${String(error)}`);
     }
 
-    if (args.once) {
-      break;
+    while (keepRunning) {
+      try {
+        const rows = await fetchLatestRows(client, Math.floor(args.limit));
+        for (const row of rows.reverse()) {
+          const key = `${row.source}::${row.query_text}`;
+          const currentMs = safeDateMs(row.last_success_at);
+          const currentHits = Number(row.hit_count) || 0;
+          const previous = seen.get(key);
+          const isNew =
+            !previous ||
+            currentMs > previous.lastMs ||
+            (currentMs === previous.lastMs && currentHits > previous.hitCount);
+          if (!isNew) {
+            continue;
+          }
+          seen.set(key, { lastMs: currentMs, hitCount: currentHits });
+          const label = formatEventLabel(row.source);
+          console.log(
+            `[${now()}] ${label}: "${row.query_text}" hits=${currentHits} @ ${row.last_success_at}`,
+          );
+        }
+      } catch (error) {
+        console.error(`[query-watch ${now()}] poll error: ${String(error)}`);
+      }
+
+      await sleep(Math.floor(args.intervalMs));
     }
-    await sleep(Math.floor(args.intervalMs));
+  } finally {
+    await client.end();
   }
 }
 

@@ -15,6 +15,8 @@
     "sitemap:build:force": "node scripts/generate-sitemaps-build.mjs --force",
     "kv:flush": "node scripts/flush-query-cache-kv.mjs",
     "kv:flush:dry-run": "node scripts/flush-query-cache-kv.mjs --dry-run",
+    "db:sync-child-deleted": "node scripts/sync-child-deleted-status.mjs",
+    "db:sync-child-deleted:dry-run": "node scripts/sync-child-deleted-status.mjs --dry-run",
     "watch:queries": "dotenv -e .dev.vars -- node scripts/watch-latest-search-queries.mjs",
     "tail:parse": "node scripts/parse-tail-urls.mjs"
   },

@@ -98,7 +98,9 @@ export default function DOJTopUpvotedPage() {
   const [noteDraft, setNoteDraft] = useState("");
   const [noteLoading, setNoteLoading] = useState(false);
   const [noteSaving, setNoteSaving] = useState(false);
-  const [bookmarkNotes, setBookmarkNotes] = useState<Record<string, string>>({});
+  const [bookmarkNotes, setBookmarkNotes] = useState<Record<string, string>>(
+    {},
+  );
   const pageSize = 25;
   const [pendingScrollY, setPendingScrollY] = useState<number | null>(null);
 
@@ -132,7 +134,10 @@ export default function DOJTopUpvotedPage() {
       if (typeof parsed.page === "number" && Number.isFinite(parsed.page)) {
         setPage(Math.max(1, Math.floor(parsed.page)));
       }
-      if (typeof parsed.scrollY === "number" && Number.isFinite(parsed.scrollY)) {
+      if (
+        typeof parsed.scrollY === "number" &&
+        Number.isFinite(parsed.scrollY)
+      ) {
         setPendingScrollY(Math.max(0, Math.floor(parsed.scrollY)));
       }
     } catch {
@@ -181,7 +186,9 @@ export default function DOJTopUpvotedPage() {
         }
         const payload = (await response.json()) as { totalBookmarks?: number };
         setBookmarkTotal(
-          typeof payload.totalBookmarks === "number" ? payload.totalBookmarks : 0,
+          typeof payload.totalBookmarks === "number"
+            ? payload.totalBookmarks
+            : 0,
         );
       } catch {
         // Non-blocking.
@@ -243,7 +250,9 @@ export default function DOJTopUpvotedPage() {
     let cancelled = false;
     async function loadNoteForPreview() {
       try {
-        const params = new URLSearchParams({ url: currentResultUrl }).toString();
+        const params = new URLSearchParams({
+          url: currentResultUrl,
+        }).toString();
         const response = await fetch(`/api/doj-search/bookmark?${params}`, {
           headers: { "x-voter-id": voterId },
         });
@@ -288,13 +297,15 @@ export default function DOJTopUpvotedPage() {
 
   function openPreview(result: TopResult) {
     const sourceUrl = result.sources.original_link ?? result.result_url;
-    const eftaId = extractEftaId(result.file_name ?? result.title ?? result.result_url);
+    const eftaId = extractEftaId(
+      result.file_name ?? result.title ?? result.result_url,
+    );
     if (isMobileSafari() && sourceUrl) {
       openMobilePdfPreservingPage(
         eftaId ? `/documents/${encodeURIComponent(eftaId)}` : sourceUrl,
         {
-        key: restoreKey,
-        value: { page, scrollY: window.scrollY },
+          key: restoreKey,
+          value: { page, scrollY: window.scrollY },
         },
       );
       return;
@@ -363,7 +374,10 @@ export default function DOJTopUpvotedPage() {
     }
   }
 
-  async function onBookmark(result: TopResult, options?: { note?: string | null }) {
+  async function onBookmark(
+    result: TopResult,
+    options?: { note?: string | null },
+  ) {
     setBookmarkingUrl(result.result_url);
     setError(null);
     try {
@@ -467,8 +481,8 @@ export default function DOJTopUpvotedPage() {
       </section>
 
       <section className="panel detail-nav link-bar">
-        <Link href="/doj-search" className="table-link">
-          Back to DOJ Search
+        <Link href="/search" className="table-link">
+          Back to Advanced Search
         </Link>
         <Link href="/" className="table-link">
           Back to Dashboard
@@ -546,7 +560,9 @@ export default function DOJTopUpvotedPage() {
                       >
                         <span className="bookmark-content">
                           <BookmarkIcon saved={result.userBookmarked} />
-                          <span className="mono">{result.bookmarkCount ?? 0}</span>
+                          <span className="mono">
+                            {result.bookmarkCount ?? 0}
+                          </span>
                         </span>
                       </button>
                     </div>
@@ -567,7 +583,9 @@ export default function DOJTopUpvotedPage() {
               key={`${result.result_url}-mobile`}
               className="mobile-result-card"
             >
-              <p className="mobile-result-rank mono">#{startIndex + index + 1}</p>
+              <p className="mobile-result-rank mono">
+                #{startIndex + index + 1}
+              </p>
               <a
                 href={result.result_url}
                 className="table-link mobile-result-title"
@@ -684,7 +702,9 @@ export default function DOJTopUpvotedPage() {
                     >
                       <span className="bookmark-content">
                         <BookmarkIcon saved={previewResult.userBookmarked} />
-                        <span className="mono">{previewResult.bookmarkCount ?? 0}</span>
+                        <span className="mono">
+                          {previewResult.bookmarkCount ?? 0}
+                        </span>
                       </span>
                     </button>
                   </>
@@ -711,7 +731,9 @@ export default function DOJTopUpvotedPage() {
                 </button>
               </div>
             </header>
-            <div className={`pdf-modal-body${showNoteSidebar ? " has-note-sidebar" : ""}`}>
+            <div
+              className={`pdf-modal-body${showNoteSidebar ? " has-note-sidebar" : ""}`}
+            >
               <div className="pdf-modal-frame-wrap">
                 <iframe
                   src={`${previewUrl}${previewUrl.includes("#") ? "&" : "#"}page=1&view=FitH&zoom=page-width&scrollbar=1&pagemode=none`}
@@ -722,7 +744,9 @@ export default function DOJTopUpvotedPage() {
               {showNoteSidebar && (
                 <aside className="note-sidebar">
                   <h3>Bookmark Note</h3>
-                  {noteLoading ? <p className="empty">Loading note...</p> : null}
+                  {noteLoading ? (
+                    <p className="empty">Loading note...</p>
+                  ) : null}
                   <textarea
                     value={noteDraft}
                     onChange={(event) => setNoteDraft(event.target.value)}
@@ -734,7 +758,11 @@ export default function DOJTopUpvotedPage() {
                     onClick={() => void onSaveNote()}
                     disabled={noteSaving || !isNoteDirty}
                   >
-                    {noteSaving ? "Saving..." : isNoteDirty ? "Save Note" : "Saved"}
+                    {noteSaving
+                      ? "Saving..."
+                      : isNoteDirty
+                        ? "Save Note"
+                        : "Saved"}
                   </button>
                 </aside>
               )}

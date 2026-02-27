@@ -11,6 +11,7 @@ import {
 import MobileChunkedPdfModal from "@/components/mobile-chunked-pdf-modal";
 import GlobalNav from "@/components/global-nav";
 import { globalNavConfig } from "@/lib/global-nav-config";
+import Link from "next/link";
 
 type ParsedQuery = {
   phrases: string[];
@@ -45,6 +46,13 @@ type SearchResponse = {
   suggest?: {
     did_you_mean?: Array<{ options?: Array<{ text?: string }> }>;
   };
+};
+
+type PreviewVoteMeta = {
+  voteUrl: string;
+  voteTitle: string;
+  voteFileName: string | null;
+  voteSnippet: string | null;
 };
 
 function stripOuterQuotes(value: string) {
@@ -316,10 +324,18 @@ function buildLexicalClause(
   const phraseClauses = parsed.phrases.map((phrase) => ({
     match_phrase: { content: phrase },
   }));
-  if (requirePhrases) {
-    must.push(...phraseClauses);
-  }
 
+  if (phraseClauses.length > 0) {
+    if (requirePhrases) {
+      // strict: quoted phrases must appear exactly
+      must.push(...phraseClauses);
+    } else {
+      // soft: quoted phrases boost results but aren't required
+      must.push({
+        bool: { should: phraseClauses, minimum_should_match: 1 },
+      });
+    }
+  }
   for (const group of parsed.orGroups) {
     const should: unknown[] = [];
     for (const term of group.terms) {
@@ -639,6 +655,7 @@ export default function SearchPage() {
   const queryInputRef = useRef<HTMLInputElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const isFetchingMoreRef = useRef(false);
+  const autoSearchInitRef = useRef(false);
   const [query, setQuery] = useState("");
   // const [status, setStatus] = useState("idle");
   const [loading, setLoading] = useState(false);
@@ -662,6 +679,8 @@ export default function SearchPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState("");
+  const [previewVoteMeta, setPreviewVoteMeta] =
+    useState<PreviewVoteMeta | null>(null);
   const [expandedSnippets, setExpandedSnippets] = useState<
     Record<string, boolean>
   >({});
@@ -881,6 +900,29 @@ export default function SearchPage() {
   );
 
   useEffect(() => {
+    if (autoSearchInitRef.current) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const initialQuery =
+      params.get("q")?.trim() ||
+      params.get("query")?.trim() ||
+      params.get("keys")?.trim() ||
+      "";
+    if (!initialQuery) {
+      autoSearchInitRef.current = true;
+      return;
+    }
+    autoSearchInitRef.current = true;
+    setQuery(initialQuery);
+    setShowSuggestions(false);
+    void runSearch(true, initialQuery);
+  }, [runSearch]);
+
+  useEffect(() => {
     if (
       !results ||
       loading ||
@@ -965,13 +1007,25 @@ export default function SearchPage() {
     }
   }
 
-  function onOpenPdfPreview(eftaId: string) {
+  function onOpenPdfPreview(
+    eftaId: string,
+    voteMeta?: {
+      fileName?: string | null;
+      snippet?: string | null;
+    },
+  ) {
     const normalized = eftaId.trim();
     if (!normalized) {
       return;
     }
     setPreviewTitle(normalized);
     setPreviewUrl(`/api/pdf/${encodeURIComponent(normalized)}`);
+    setPreviewVoteMeta({
+      voteUrl: `/api/pdf/${encodeURIComponent(normalized)}`,
+      voteTitle: normalized,
+      voteFileName: voteMeta?.fileName ?? `${normalized}.pdf`,
+      voteSnippet: voteMeta?.snippet ?? null,
+    });
   }
 
   return (
@@ -984,6 +1038,16 @@ export default function SearchPage() {
         <h1>Advanced Search V2</h1>
         <p className="subtitle">
           Google-like syntax, hybrid ranking, and highlighting
+        </p>
+        <p className="subtitle" style={{ paddingTop: "0.2rem" }}>
+          OCR Dataset contributed by:{" "}
+          <Link
+            className="table-link"
+            href="https://certant.ai/"
+            target="_blank"
+          >
+            CertantAI
+          </Link>
         </p>
       </section>
 
@@ -1005,7 +1069,7 @@ export default function SearchPage() {
                 setTimeout(() => setShowSuggestions(false), 120);
               }}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder='Try: "The shipment has arrived" -Paul dataset:dataset_9 file:*.jpg'
+              placeholder="try: musk -elon"
               autoComplete="off"
             />
             {query.trim().length > 0 && (
@@ -1297,7 +1361,10 @@ export default function SearchPage() {
                           style={{ fontSize: 14 }}
                           onClick={(event) => {
                             event.preventDefault();
-                            onOpenPdfPreview(eftaId);
+                            onOpenPdfPreview(eftaId, {
+                              fileName: src.filename ?? null,
+                              snippet: fragments[0] ?? null,
+                            });
                           }}
                           onMouseDown={(event) => event.preventDefault()}
                         >
@@ -1413,9 +1480,14 @@ export default function SearchPage() {
           title={previewTitle || "PDF Preview"}
           kicker="Advanced Search"
           eftaId={previewTitle}
+          voteUrl={previewVoteMeta?.voteUrl ?? ""}
+          voteTitle={previewVoteMeta?.voteTitle ?? previewTitle}
+          voteFileName={previewVoteMeta?.voteFileName ?? undefined}
+          voteSnippet={previewVoteMeta?.voteSnippet ?? undefined}
           onClose={() => {
             setPreviewUrl(null);
             setPreviewTitle("");
+            setPreviewVoteMeta(null);
           }}
         />
       )}

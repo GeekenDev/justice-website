@@ -1064,7 +1064,7 @@ export default function DeletedDocsBrowserDebugClient() {
 
       <div
         ref={wrapRef}
-        className={`deleted-debug-pdf-scroll${useCanvasRenderer ? " deleted-debug-pdf-scroll-custom" : ""}`}
+        className={`deleted-debug-pdf-scroll${useCanvasRenderer ? " deleted-debug-pdf-scroll-custom" : " deleted-debug-pdf-scroll-native"}`}
       >
         {useCanvasRenderer ? (
           <div ref={transformRef} className="deleted-debug-transform">

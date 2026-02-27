@@ -11,29 +11,25 @@
       "label": "Advanced Search"
     },
     {
-      "href": "/overview",
-      "label": "Overview"
+      "label": "Top Searches",
+      "href": "/doj-top-upvoted"
     },
     {
       "href": "/archive-downloads",
       "label": "Archive Downloads"
     },
+
     {
-      "label": "DOJ Tools",
-      "children": [
-        {
-          "href": "/deleted-docs-browser",
-          "label": "Browse Deleted Docs"
-        },
-        {
-          "href": "/deleted-docs-top-upvoted",
-          "label": "Top Deleted"
-        },
-        {
-          "href": "/api",
-          "label": "API Docs"
-        }
-      ]
+      "href": "/deleted-docs-browser",
+      "label": "Browse Deleted Docs"
+    },
+    {
+      "href": "/deleted-docs-top-upvoted",
+      "label": "Top Deleted"
+    },
+    {
+      "href": "/api",
+      "label": "API Docs"
     }
   ]
 }

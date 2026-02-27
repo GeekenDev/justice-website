@@ -349,6 +349,19 @@ function normalizeEftaSearchQuery(query: string) {
   return compact;
 }
 
+function getPrefixUpperBound(prefix: string) {
+  if (!prefix) {
+    return "";
+  }
+  for (let index = prefix.length - 1; index >= 0; index -= 1) {
+    const code = prefix.charCodeAt(index);
+    if (code < 0xffff) {
+      return `${prefix.slice(0, index)}${String.fromCharCode(code + 1)}`;
+    }
+  }
+  return "";
+}
+
 export function createQueryCacheDebug(): QueryCacheDebug {
   return {
     mode: "disabled",
@@ -441,8 +454,19 @@ export async function searchFiles(
   const hasSearchQuery = searchQuery.length > 0;
 
   if (hasSearchQuery) {
-    values.push(searchQuery);
-    where.push(`f.efta_id = $${values.length}`);
+    const upperBound = getPrefixUpperBound(searchQuery);
+    if (upperBound) {
+      values.push(searchQuery);
+      const lowerParam = values.length;
+      values.push(upperBound);
+      const upperParam = values.length;
+      where.push(
+        `f.efta_id >= $${lowerParam} AND f.efta_id < $${upperParam}`,
+      );
+    } else {
+      values.push(searchQuery);
+      where.push(`f.efta_id = $${values.length}`);
+    }
   } else {
     where.push(`(f.parent_efta_id IS NULL OR btrim(f.parent_efta_id) = '')`);
   }

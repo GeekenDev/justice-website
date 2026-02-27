@@ -26,6 +26,10 @@ type MobileChunkedPdfModalProps = {
   title: string;
   kicker: string;
   eftaId?: string;
+  voteUrl?: string;
+  voteTitle?: string;
+  voteFileName?: string;
+  voteSnippet?: string;
   onClose: () => void;
 };
 
@@ -50,6 +54,10 @@ export default function MobileChunkedPdfModal({
   title,
   kicker,
   eftaId = "",
+  voteUrl = "",
+  voteTitle,
+  voteFileName,
+  voteSnippet,
   onClose,
 }: MobileChunkedPdfModalProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -96,6 +104,7 @@ export default function MobileChunkedPdfModal({
   const [canUpvote, setCanUpvote] = useState(false);
   const pageWidth = Math.max(280, Math.floor(basePageWidth));
   const normalizedEftaId = eftaId.trim().toUpperCase();
+  const normalizedVoteUrl = voteUrl.trim();
   const shareUrl = useMemo(() => {
     if (!normalizedEftaId || typeof window === "undefined") {
       return sourceUrl;
@@ -145,7 +154,7 @@ export default function MobileChunkedPdfModal({
   }, []);
 
   useEffect(() => {
-    if (!normalizedEftaId || !voterId) {
+    if (!normalizedVoteUrl || !voterId) {
       setCanUpvote(false);
       setUpvoteCount(0);
       setUserVoted(false);
@@ -155,7 +164,7 @@ export default function MobileChunkedPdfModal({
     async function loadVoteState() {
       try {
         const response = await fetch(
-          `/api/deleted-browser/file?id=${encodeURIComponent(normalizedEftaId)}`,
+          `/api/doj-search/votes?url=${encodeURIComponent(normalizedVoteUrl)}`,
           {
             headers: { "x-voter-id": voterId },
           },
@@ -169,14 +178,15 @@ export default function MobileChunkedPdfModal({
           return;
         }
         const payload = (await response.json()) as {
-          file?: { upvotes?: number; userVoted?: boolean };
+          voteCount?: number;
+          userVoted?: boolean;
         };
         if (cancelled) {
           return;
         }
         setCanUpvote(true);
-        setUpvoteCount(typeof payload.file?.upvotes === "number" ? payload.file.upvotes : 0);
-        setUserVoted(Boolean(payload.file?.userVoted));
+        setUpvoteCount(typeof payload.voteCount === "number" ? payload.voteCount : 0);
+        setUserVoted(Boolean(payload.userVoted));
       } catch {
         if (!cancelled) {
           setCanUpvote(false);
@@ -189,22 +199,27 @@ export default function MobileChunkedPdfModal({
     return () => {
       cancelled = true;
     };
-  }, [normalizedEftaId, voterId]);
+  }, [normalizedVoteUrl, voterId]);
 
   async function onUpvoteDoc() {
-    if (!canUpvote || !normalizedEftaId || !voterId || userVoted || isVoting) {
+    if (!canUpvote || !normalizedVoteUrl || !voterId || userVoted || isVoting) {
       return;
     }
     setIsVoting(true);
     try {
-      const response = await fetch("/api/deleted-browser/upvote", {
+      const resolvedTitle =
+        voteTitle ?? (normalizedEftaId || title || "Search Result");
+      const response = await fetch("/api/doj-search/upvote", {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-voter-id": voterId,
         },
         body: JSON.stringify({
-          eftaId: normalizedEftaId,
+          url: normalizedVoteUrl,
+          title: resolvedTitle,
+          fileName: voteFileName ?? null,
+          snippet: voteSnippet ?? null,
         }),
       });
       const payload = (await response.json()) as {
@@ -728,7 +743,7 @@ export default function MobileChunkedPdfModal({
                 url={shareUrl}
                 title={shareTitle}
                 text={shareText}
-                label="↗"
+                label="Share"
               />
               <button
                 type="button"
@@ -769,7 +784,7 @@ export default function MobileChunkedPdfModal({
               url={shareUrl}
               title={shareTitle}
               text={shareText}
-              label="↗"
+              label="Share"
             />
             <div className="deleted-debug-top-main">
               <div className="deleted-debug-meta">
