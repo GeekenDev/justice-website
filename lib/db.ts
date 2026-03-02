@@ -152,10 +152,23 @@ export type FilesChangeLogFeedItem = {
   description: string | null;
   hash_matches_original: boolean | null;
   exists_in_files: boolean;
+  dataset?: string | null;
 };
 
 export type FilesChangeLogFeed = {
   items: FilesChangeLogFeedItem[];
+};
+
+export type FilesChangeLogDailySummaryItem = {
+  day_key: string;
+  total: number;
+  deleted: number;
+  restored: number;
+  hash_changed: number;
+};
+
+export type FilesChangeLogWeeklySummary = {
+  days: FilesChangeLogDailySummaryItem[];
 };
 
 export type SearchParams = {
@@ -356,7 +369,10 @@ function pushFlagFilter(
 }
 
 function normalizeEftaSearchQuery(query: string) {
-  const compact = query.trim().replace(/[\s-]+/g, "").toUpperCase();
+  const compact = query
+    .trim()
+    .replace(/[\s-]+/g, "")
+    .toUpperCase();
   if (!compact) {
     return "";
   }
@@ -484,9 +500,7 @@ export async function searchFiles(
       const lowerParam = values.length;
       values.push(upperBound);
       const upperParam = values.length;
-      where.push(
-        `f.efta_id >= $${lowerParam} AND f.efta_id < $${upperParam}`,
-      );
+      where.push(`f.efta_id >= $${lowerParam} AND f.efta_id < $${upperParam}`);
     } else {
       values.push(searchQuery);
       where.push(`f.efta_id = $${values.length}`);
@@ -595,7 +609,9 @@ export async function getFileById(eftaId: string, debug?: QueryCacheDebug) {
 
     let fileDescription: string | null = null;
     try {
-      const descriptionResult = await client.query<{ description: string | null }>(
+      const descriptionResult = await client.query<{
+        description: string | null;
+      }>(
         `
           SELECT description
           FROM files
@@ -648,7 +664,7 @@ export async function getFileById(eftaId: string, debug?: QueryCacheDebug) {
 }
 
 function quoteIdentifier(identifier: string) {
-  return `"${identifier.replace(/"/g, "\"\"")}"`;
+  return `"${identifier.replace(/"/g, '""')}"`;
 }
 
 function getPreferredTimeColumn(columnNames: string[]) {
@@ -668,17 +684,74 @@ function getPreferredTimeColumn(columnNames: string[]) {
   const normalized = new Set(columnNames.map((name) => name.toLowerCase()));
   for (const candidate of preferredColumns) {
     if (normalized.has(candidate)) {
-      return columnNames.find((name) => name.toLowerCase() === candidate) ?? null;
+      return (
+        columnNames.find((name) => name.toLowerCase() === candidate) ?? null
+      );
     }
   }
   return null;
+}
+
+function toDeletedFlag(value: unknown) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (value === 1) {
+      return true;
+    }
+    if (value === 0) {
+      return false;
+    }
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "t", "1", "yes", "y"].includes(normalized)) {
+      return true;
+    }
+    if (["false", "f", "0", "no", "n"].includes(normalized)) {
+      return false;
+    }
+  }
+  return null;
+}
+
+function resolveFilesChangeKind(
+  deletedValue: unknown,
+  actionValue: string | null,
+  filesDeleted: boolean | null,
+) {
+  const deletedFlag = toDeletedFlag(deletedValue);
+  if (deletedFlag === true) {
+    return "deleted" as const;
+  }
+  if (deletedFlag === false) {
+    return "restored" as const;
+  }
+  const action = (actionValue || "").toLowerCase();
+  if (/(delete|removed|remove|hidden)/.test(action)) {
+    return "deleted" as const;
+  }
+  if (/(restore|restored|undelete|unhide)/.test(action)) {
+    return "restored" as const;
+  }
+  if (filesDeleted === true) {
+    return "deleted" as const;
+  }
+  if (filesDeleted === false) {
+    return "restored" as const;
+  }
+  return "deleted" as const;
 }
 
 export async function getFilesChangeLogFeed(params?: {
   limit?: number;
   offset?: number;
 }): Promise<FilesChangeLogFeed> {
-  const safeLimit = Math.max(1, Math.min(500, Math.floor(params?.limit ?? 120)));
+  const safeLimit = Math.max(
+    1,
+    Math.min(500, Math.floor(params?.limit ?? 120)),
+  );
   const safeOffset = Math.max(0, Math.floor(params?.offset ?? 0));
 
   return withClient(async (client) => {
@@ -747,6 +820,9 @@ export async function getFilesChangeLogFeed(params?: {
     const descriptionSql = filesColumns.has("description")
       ? `f.description::text AS description`
       : `NULL::text AS description`;
+    const datasetSql = filesColumns.has("dataset")
+      ? `f.dataset::text AS dataset`
+      : `NULL::text AS dataset`;
     const originalHashSql = filesColumns.has("original_hash")
       ? `f.original_hash::text AS original_hash`
       : `NULL::text AS original_hash`;
@@ -767,6 +843,7 @@ export async function getFilesChangeLogFeed(params?: {
       action_value: string | null;
       exists_in_files: boolean;
       description: string | null;
+      dataset: string | null;
       original_hash: string | null;
       current_hash: string | null;
       files_deleted: boolean | null;
@@ -779,6 +856,7 @@ export async function getFilesChangeLogFeed(params?: {
         ${actionSql},
         (f.efta_id IS NOT NULL) AS exists_in_files,
         ${descriptionSql},
+        ${datasetSql},
         ${originalHashSql},
         ${currentHashSql},
         ${filesDeletedSql}
@@ -794,75 +872,30 @@ export async function getFilesChangeLogFeed(params?: {
       [safeLimit, safeOffset],
     );
 
-    function toDeletedFlag(value: unknown) {
-      if (typeof value === "boolean") {
-        return value;
-      }
-      if (typeof value === "number") {
-        if (value === 1) {
-          return true;
-        }
-        if (value === 0) {
-          return false;
-        }
-      }
-      if (typeof value === "string") {
-        const normalized = value.trim().toLowerCase();
-        if (["true", "t", "1", "yes", "y"].includes(normalized)) {
-          return true;
-        }
-        if (["false", "f", "0", "no", "n"].includes(normalized)) {
-          return false;
-        }
-      }
-      return null;
-    }
-
-    function resolveChangeKind(
-      deletedValue: unknown,
-      actionValue: string | null,
-      filesDeleted: boolean | null,
-    ) {
-      const deletedFlag = toDeletedFlag(deletedValue);
-      if (deletedFlag === true) {
-        return "deleted" as const;
-      }
-      if (deletedFlag === false) {
-        return "restored" as const;
-      }
-      const action = (actionValue || "").toLowerCase();
-      if (/(delete|removed|remove|hidden)/.test(action)) {
-        return "deleted" as const;
-      }
-      if (/(restore|restored|undelete|unhide)/.test(action)) {
-        return "restored" as const;
-      }
-      if (filesDeleted === true) {
-        return "deleted" as const;
-      }
-      if (filesDeleted === false) {
-        return "restored" as const;
-      }
-      return "deleted" as const;
-    }
-
     return {
       items: rowsResult.rows
-        .filter((row): row is typeof row & { efta_id: string } => Boolean(row.efta_id))
+        .filter((row): row is typeof row & { efta_id: string } =>
+          Boolean(row.efta_id),
+        )
         .map((row) => {
           const original = row.original_hash?.trim() || null;
           const current = row.current_hash?.trim() || null;
           const hashMatches =
-            original && current ? original === current : row.exists_in_files ? null : null;
+            original && current
+              ? original === current
+              : row.exists_in_files
+                ? null
+                : null;
           return {
             efta_id: row.efta_id,
             changed_at: row.changed_at,
-            change_kind: resolveChangeKind(
+            change_kind: resolveFilesChangeKind(
               row.deleted_value,
               row.action_value,
               row.files_deleted,
             ),
             description: row.description?.trim() || null,
+            dataset: row.dataset?.trim() || null,
             hash_matches_original: hashMatches,
             exists_in_files: row.exists_in_files,
           };
@@ -871,8 +904,352 @@ export async function getFilesChangeLogFeed(params?: {
   });
 }
 
+export async function getFilesChangeLogWeeklySummary(params?: {
+  days?: number;
+}): Promise<FilesChangeLogWeeklySummary> {
+  const safeDays = Math.max(1, Math.min(31, Math.floor(params?.days ?? 7)));
+
+  return withClient(async (client) => {
+    const logColumnsResult = await client.query<FilesChangeLogColumnRow>(
+      `
+      SELECT column_name, data_type, udt_name, ordinal_position
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'files_change_log'
+      ORDER BY ordinal_position ASC
+      `,
+    );
+
+    const columns = logColumnsResult.rows
+      .map((row) => row.column_name)
+      .filter((name) => Boolean(name));
+    if (columns.length === 0) {
+      return { days: [] };
+    }
+
+    const eftaColumn =
+      columns.find((name) => name.toLowerCase() === "efta_id") ||
+      columns.find((name) => name.toLowerCase() === "file_id") ||
+      columns.find((name) => name.toLowerCase() === "id") ||
+      null;
+    const changedAtColumn = getPreferredTimeColumn(columns);
+    if (!eftaColumn || !changedAtColumn) {
+      return { days: [] };
+    }
+
+    const deletedColumn =
+      columns.find((name) => name.toLowerCase() === "deleted") ||
+      columns.find((name) => name.toLowerCase() === "is_deleted") ||
+      columns.find((name) => name.toLowerCase() === "deleted_flag") ||
+      null;
+    const actionColumn =
+      columns.find((name) => name.toLowerCase() === "action") ||
+      columns.find((name) => name.toLowerCase() === "change_type") ||
+      columns.find((name) => name.toLowerCase() === "event_type") ||
+      columns.find((name) => name.toLowerCase() === "operation") ||
+      columns.find((name) => name.toLowerCase() === "event") ||
+      null;
+
+    const filesColumnsResult = await client.query<FilesChangeLogColumnRow>(
+      `
+      SELECT column_name, data_type, udt_name, ordinal_position
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'files'
+      ORDER BY ordinal_position ASC
+      `,
+    );
+    const filesColumns = new Set(
+      filesColumnsResult.rows.map((row) => row.column_name.toLowerCase()),
+    );
+
+    const deletedSql = deletedColumn
+      ? `l.${quoteIdentifier(deletedColumn)} AS deleted_value`
+      : `NULL::text AS deleted_value`;
+    const actionSql = actionColumn
+      ? `l.${quoteIdentifier(actionColumn)}::text AS action_value`
+      : `NULL::text AS action_value`;
+    const originalHashSql = filesColumns.has("original_hash")
+      ? `f.original_hash::text AS original_hash`
+      : `NULL::text AS original_hash`;
+    const currentHashSql = filesColumns.has("current_hash")
+      ? `f.current_hash::text AS current_hash`
+      : `NULL::text AS current_hash`;
+    const filesDeletedSql = filesColumns.has("deleted")
+      ? `f.deleted AS files_deleted`
+      : `NULL::boolean AS files_deleted`;
+
+    const rowsResult = await client.query<{
+      changed_at: string | null;
+      deleted_value: unknown;
+      action_value: string | null;
+      files_deleted: boolean | null;
+      original_hash: string | null;
+      current_hash: string | null;
+    }>(
+      `
+      SELECT
+        l.${quoteIdentifier(changedAtColumn)}::text AS changed_at,
+        ${deletedSql},
+        ${actionSql},
+        ${filesDeletedSql},
+        ${originalHashSql},
+        ${currentHashSql}
+      FROM public.files_change_log l
+      LEFT JOIN public.files f
+        ON f.efta_id = l.${quoteIdentifier(eftaColumn)}::text
+      WHERE l.${quoteIdentifier(eftaColumn)} IS NOT NULL
+        AND btrim(l.${quoteIdentifier(eftaColumn)}::text) <> ''
+        AND l.${quoteIdentifier(changedAtColumn)} >= NOW() - ($1::int - 1) * INTERVAL '1 day'
+      ORDER BY l.${quoteIdentifier(changedAtColumn)} DESC NULLS LAST
+      `,
+      [safeDays],
+    );
+
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const startDate = new Date(now);
+    startDate.setDate(now.getDate() - (safeDays - 1));
+
+    const buckets = new Map<
+      string,
+      { total: number; deleted: number; restored: number; hash_changed: number }
+    >();
+    for (let i = 0; i < safeDays; i += 1) {
+      const day = new Date(startDate);
+      day.setDate(startDate.getDate() + i);
+      const dayKey = `${day.getFullYear()}-${String(
+        day.getMonth() + 1,
+      ).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+      buckets.set(dayKey, {
+        total: 0,
+        deleted: 0,
+        restored: 0,
+        hash_changed: 0,
+      });
+    }
+
+    rowsResult.rows.forEach((row) => {
+      if (!row.changed_at) {
+        return;
+      }
+      const changed = new Date(row.changed_at);
+      if (Number.isNaN(changed.valueOf())) {
+        return;
+      }
+      changed.setHours(0, 0, 0, 0);
+      if (changed < startDate || changed > now) {
+        return;
+      }
+      const dayKey = `${changed.getFullYear()}-${String(
+        changed.getMonth() + 1,
+      ).padStart(2, "0")}-${String(changed.getDate()).padStart(2, "0")}`;
+      const bucket = buckets.get(dayKey);
+      if (!bucket) {
+        return;
+      }
+      bucket.total += 1;
+      const changeKind = resolveFilesChangeKind(
+        row.deleted_value,
+        row.action_value,
+        row.files_deleted,
+      );
+      if (changeKind === "deleted") {
+        bucket.deleted += 1;
+      } else {
+        bucket.restored += 1;
+      }
+      const original = row.original_hash?.trim() || null;
+      const current = row.current_hash?.trim() || null;
+      if (original && current && original !== current) {
+        bucket.hash_changed += 1;
+      }
+    });
+
+    return {
+      days: Array.from(buckets.entries()).map(([day_key, counts]) => ({
+        day_key,
+        total: counts.total,
+        deleted: counts.deleted,
+        restored: counts.restored,
+        hash_changed: counts.hash_changed,
+      })),
+    };
+  });
+}
+
+export async function getFilesChangeLogDailySummariesByDayKeys(
+  dayKeys: string[],
+  options?: { timeZone?: string },
+): Promise<FilesChangeLogDailySummaryItem[]> {
+  const timeZone = options?.timeZone?.trim() || "UTC";
+  const normalizedDayKeys = Array.from(
+    new Set(
+      dayKeys
+        .map((value) => value.trim())
+        .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)),
+    ),
+  );
+  if (normalizedDayKeys.length === 0) {
+    return [];
+  }
+
+  return withClient(async (client) => {
+    const logColumnsResult = await client.query<FilesChangeLogColumnRow>(
+      `
+      SELECT column_name, data_type, udt_name, ordinal_position
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'files_change_log'
+      ORDER BY ordinal_position ASC
+      `,
+    );
+
+    const columns = logColumnsResult.rows
+      .map((row) => row.column_name)
+      .filter((name) => Boolean(name));
+    if (columns.length === 0) {
+      return [];
+    }
+
+    const eftaColumn =
+      columns.find((name) => name.toLowerCase() === "efta_id") ||
+      columns.find((name) => name.toLowerCase() === "file_id") ||
+      columns.find((name) => name.toLowerCase() === "id") ||
+      null;
+    const changedAtColumn = getPreferredTimeColumn(columns);
+    if (!eftaColumn || !changedAtColumn) {
+      return [];
+    }
+
+    const deletedColumn =
+      columns.find((name) => name.toLowerCase() === "deleted") ||
+      columns.find((name) => name.toLowerCase() === "is_deleted") ||
+      columns.find((name) => name.toLowerCase() === "deleted_flag") ||
+      null;
+    const actionColumn =
+      columns.find((name) => name.toLowerCase() === "action") ||
+      columns.find((name) => name.toLowerCase() === "change_type") ||
+      columns.find((name) => name.toLowerCase() === "event_type") ||
+      columns.find((name) => name.toLowerCase() === "operation") ||
+      columns.find((name) => name.toLowerCase() === "event") ||
+      null;
+
+    const filesColumnsResult = await client.query<FilesChangeLogColumnRow>(
+      `
+      SELECT column_name, data_type, udt_name, ordinal_position
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'files'
+      ORDER BY ordinal_position ASC
+      `,
+    );
+    const filesColumns = new Set(
+      filesColumnsResult.rows.map((row) => row.column_name.toLowerCase()),
+    );
+
+    const deletedSql = deletedColumn
+      ? `l.${quoteIdentifier(deletedColumn)} AS deleted_value`
+      : `NULL::text AS deleted_value`;
+    const actionSql = actionColumn
+      ? `l.${quoteIdentifier(actionColumn)}::text AS action_value`
+      : `NULL::text AS action_value`;
+    const originalHashSql = filesColumns.has("original_hash")
+      ? `f.original_hash::text AS original_hash`
+      : `NULL::text AS original_hash`;
+    const currentHashSql = filesColumns.has("current_hash")
+      ? `f.current_hash::text AS current_hash`
+      : `NULL::text AS current_hash`;
+    const filesDeletedSql = filesColumns.has("deleted")
+      ? `f.deleted AS files_deleted`
+      : `NULL::boolean AS files_deleted`;
+
+    const rowsResult = await client.query<{
+      day_key: string | null;
+      deleted_value: unknown;
+      action_value: string | null;
+      files_deleted: boolean | null;
+      original_hash: string | null;
+      current_hash: string | null;
+    }>(
+      `
+      SELECT
+        to_char(
+          timezone($2, l.${quoteIdentifier(changedAtColumn)}::timestamptz)::date,
+          'YYYY-MM-DD'
+        ) AS day_key,
+        ${deletedSql},
+        ${actionSql},
+        ${filesDeletedSql},
+        ${originalHashSql},
+        ${currentHashSql}
+      FROM public.files_change_log l
+      LEFT JOIN public.files f
+        ON f.efta_id = l.${quoteIdentifier(eftaColumn)}::text
+      WHERE l.${quoteIdentifier(eftaColumn)} IS NOT NULL
+        AND btrim(l.${quoteIdentifier(eftaColumn)}::text) <> ''
+        AND to_char(
+          timezone($2, l.${quoteIdentifier(changedAtColumn)}::timestamptz)::date,
+          'YYYY-MM-DD'
+        ) = ANY($1::text[])
+      `,
+      [normalizedDayKeys, timeZone],
+    );
+
+    const buckets = new Map<
+      string,
+      { total: number; deleted: number; restored: number; hash_changed: number }
+    >();
+    normalizedDayKeys.forEach((dayKey) => {
+      buckets.set(dayKey, {
+        total: 0,
+        deleted: 0,
+        restored: 0,
+        hash_changed: 0,
+      });
+    });
+
+    rowsResult.rows.forEach((row) => {
+      const dayKey = row.day_key?.trim() || "";
+      if (!dayKey || !buckets.has(dayKey)) {
+        return;
+      }
+      const bucket = buckets.get(dayKey);
+      if (!bucket) {
+        return;
+      }
+      bucket.total += 1;
+      const changeKind = resolveFilesChangeKind(
+        row.deleted_value,
+        row.action_value,
+        row.files_deleted,
+      );
+      if (changeKind === "deleted") {
+        bucket.deleted += 1;
+      } else {
+        bucket.restored += 1;
+      }
+      const original = row.original_hash?.trim() || null;
+      const current = row.current_hash?.trim() || null;
+      if (original && current && original !== current) {
+        bucket.hash_changed += 1;
+      }
+    });
+
+    return Array.from(buckets.entries()).map(([day_key, counts]) => ({
+      day_key,
+      total: counts.total,
+      deleted: counts.deleted,
+      restored: counts.restored,
+      hash_changed: counts.hash_changed,
+    }));
+  });
+}
+
 export async function getFileSourceInputsByEftaIds(eftaIds: string[]) {
-  const normalized = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
+  const normalized = eftaIds
+    .map((id) => id.trim().toUpperCase())
+    .filter(Boolean);
   if (normalized.length === 0) {
     return {} as Record<
       string,
@@ -1150,7 +1527,9 @@ async function ensureDeletedDocDescriptionsTable(client: Client) {
 }
 
 export async function getDeletedDocDescriptions(eftaIds: string[]) {
-  const normalized = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
+  const normalized = eftaIds
+    .map((id) => id.trim().toUpperCase())
+    .filter(Boolean);
   if (normalized.length === 0) {
     return {} as Record<string, string | null>;
   }
@@ -1174,7 +1553,9 @@ export async function getDeletedDocDescriptions(eftaIds: string[]) {
 }
 
 export async function getFileDescriptions(eftaIds: string[]) {
-  const normalized = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
+  const normalized = eftaIds
+    .map((id) => id.trim().toUpperCase())
+    .filter(Boolean);
   if (normalized.length === 0) {
     return {} as Record<string, string | null>;
   }
@@ -1301,10 +1682,7 @@ export async function saveDojSearchResultPage(params: {
   });
 }
 
-export async function getDojSearchQuerySuggestions(
-  prefix: string,
-  limit = 8,
-) {
+export async function getDojSearchQuerySuggestions(prefix: string, limit = 8) {
   const normalized = prefix.trim();
   if (!normalized) {
     return [] as string[];
@@ -1457,7 +1835,10 @@ export async function getDojSearchUserVotes(urls: string[], voterId: string) {
   });
 }
 
-export async function getDojSearchUserBookmarks(urls: string[], voterId: string) {
+export async function getDojSearchUserBookmarks(
+  urls: string[],
+  voterId: string,
+) {
   const normalizedUrls = urls.map((url) => url.trim()).filter(Boolean);
   const normalizedVoterId = voterId.trim();
   if (normalizedUrls.length === 0 || !normalizedVoterId) {
@@ -1853,7 +2234,10 @@ export async function getTopUpvotedDojSearchResults(limit = 100) {
   });
 }
 
-export async function getUserUpvotedDojSearchResults(voterId: string, limit = 100) {
+export async function getUserUpvotedDojSearchResults(
+  voterId: string,
+  limit = 100,
+) {
   const normalizedVoterId = voterId.trim();
   if (!normalizedVoterId) {
     return [] as Array<{
@@ -1910,7 +2294,9 @@ export async function getUserUpvotedDojSearchResults(voterId: string, limit = 10
 }
 
 export async function getDeletedDocVotes(eftaIds: string[]) {
-  const normalized = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
+  const normalized = eftaIds
+    .map((id) => id.trim().toUpperCase())
+    .filter(Boolean);
   if (normalized.length === 0) {
     return {} as Record<string, number>;
   }
@@ -1933,8 +2319,13 @@ export async function getDeletedDocVotes(eftaIds: string[]) {
   });
 }
 
-export async function getDeletedDocUserVotes(eftaIds: string[], voterId: string) {
-  const normalizedIds = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
+export async function getDeletedDocUserVotes(
+  eftaIds: string[],
+  voterId: string,
+) {
+  const normalizedIds = eftaIds
+    .map((id) => id.trim().toUpperCase())
+    .filter(Boolean);
   const normalizedVoterId = voterId.trim();
   if (normalizedIds.length === 0 || !normalizedVoterId) {
     return {} as Record<string, boolean>;
@@ -1959,8 +2350,13 @@ export async function getDeletedDocUserVotes(eftaIds: string[], voterId: string)
   });
 }
 
-export async function getDeletedDocUserBookmarks(eftaIds: string[], voterId: string) {
-  const normalizedIds = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
+export async function getDeletedDocUserBookmarks(
+  eftaIds: string[],
+  voterId: string,
+) {
+  const normalizedIds = eftaIds
+    .map((id) => id.trim().toUpperCase())
+    .filter(Boolean);
   const normalizedVoterId = voterId.trim();
   if (normalizedIds.length === 0 || !normalizedVoterId) {
     return {} as Record<string, boolean>;
@@ -2102,7 +2498,10 @@ export async function getDeletedDocBookmarkByEftaId(
   });
 }
 
-export async function getUserBookmarkedDeletedDocs(voterId: string, limit = 200) {
+export async function getUserBookmarkedDeletedDocs(
+  voterId: string,
+  limit = 200,
+) {
   const normalizedVoterId = voterId.trim();
   if (!normalizedVoterId) {
     return [] as Array<{
@@ -2170,7 +2569,9 @@ export async function getDeletedBookmarkTotal(voterId: string) {
 }
 
 export async function getDeletedDocReportCounts(eftaIds: string[]) {
-  const normalized = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
+  const normalized = eftaIds
+    .map((id) => id.trim().toUpperCase())
+    .filter(Boolean);
   if (normalized.length === 0) {
     return {} as Record<string, number>;
   }
@@ -2193,8 +2594,13 @@ export async function getDeletedDocReportCounts(eftaIds: string[]) {
   });
 }
 
-export async function getDeletedDocUserReports(eftaIds: string[], voterId: string) {
-  const normalizedIds = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
+export async function getDeletedDocUserReports(
+  eftaIds: string[],
+  voterId: string,
+) {
+  const normalizedIds = eftaIds
+    .map((id) => id.trim().toUpperCase())
+    .filter(Boolean);
   const normalizedVoterId = voterId.trim();
   if (normalizedIds.length === 0 || !normalizedVoterId) {
     return {} as Record<string, boolean>;
@@ -2304,7 +2710,10 @@ export async function upvoteDeletedDoc(params: {
   });
 }
 
-export async function reportDeletedDoc(params: { eftaId: string; voterId: string }) {
+export async function reportDeletedDoc(params: {
+  eftaId: string;
+  voterId: string;
+}) {
   const eftaId = params.eftaId.trim().toUpperCase();
   const voterId = params.voterId.trim();
   if (!eftaId) {
