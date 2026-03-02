@@ -1,19 +1,32 @@
+import { absoluteUrl } from "@/lib/seo";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+const TOP_SEARCHES_PATH = "/doj-top-upvoted";
+const TOP_SEARCHES_TITLE = "Top Searches";
+const TOP_SEARCHES_DESCRIPTION =
+  "Browse the top upvoted search results and trending queries for the Epstein files dataset.";
+
 export const metadata: Metadata = {
-  title: "Top DOJ Upvoted Results",
-  description:
-    "Browse the most upvoted DOJ search results with document preview and community ranking.",
+  title: TOP_SEARCHES_TITLE,
+  description: TOP_SEARCHES_DESCRIPTION,
   alternates: {
-    canonical: "/doj-top-upvoted",
+    canonical: TOP_SEARCHES_PATH,
+  },
+  robots: {
+    index: true,
+    follow: true,
   },
   openGraph: {
-    title: "Top DOJ Upvoted Results",
-    description:
-      "Community-ranked DOJ search results for Epstein Files.",
+    title: TOP_SEARCHES_TITLE,
+    description: TOP_SEARCHES_DESCRIPTION,
     type: "website",
-    url: "/doj-top-upvoted",
+    url: absoluteUrl(TOP_SEARCHES_PATH),
+  },
+  twitter: {
+    card: "summary",
+    title: TOP_SEARCHES_TITLE,
+    description: TOP_SEARCHES_DESCRIPTION,
   },
 };
 

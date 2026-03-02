@@ -309,6 +309,24 @@ tr:hover td {
   border-bottom-color: rgba(196, 242, 255, 0.85);
 }
 
+.linklike-btn {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  line-height: inherit;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.linklike-btn:hover {
+  transform: none;
+  filter: none;
+}
+
 .mono {
   font-family: var(--font-mono), Consolas, monospace;
   font-size: 0.8rem;
@@ -407,6 +425,12 @@ tr:hover td {
 
 .details {
   min-height: 26rem;
+}
+
+.dashboard-side-stack {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
 }
 
 .detail-page {
@@ -668,9 +692,188 @@ tr:hover td {
   background: rgba(9, 20, 34, 0.72);
 }
 
+.file-detail-page .file-side-stack {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+}
+
 .empty {
   margin: 1rem;
   color: var(--muted);
+}
+
+.log-page .detail-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.log-summary {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.log-feed-panel {
+  padding: 0.6rem 0.7rem;
+}
+
+.log-feed-panel-compact {
+  padding: 0.55rem;
+}
+
+.log-feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.log-feed-list-compact {
+  gap: 0.5rem;
+}
+
+.log-entry-card {
+  border: 1px solid rgba(132, 241, 255, 0.16);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(22, 144, 150, 0.18), transparent 40%),
+    linear-gradient(170deg, rgba(8, 20, 34, 0.9), rgba(6, 14, 24, 0.92));
+  padding: 0.85rem 0.92rem 0.95rem;
+}
+
+.log-entry-card.compact {
+  padding: 0.7rem 0.8rem;
+}
+
+.log-entry-card-clickable {
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.log-entry-card-clickable:hover {
+  border-color: rgba(132, 241, 255, 0.38);
+  box-shadow: 0 8px 20px rgba(2, 17, 30, 0.4);
+  transform: translateY(-1px);
+}
+
+.log-entry-card-clickable:focus-visible {
+  outline: 2px solid rgba(132, 241, 255, 0.8);
+  outline-offset: 2px;
+}
+
+.log-entry-main {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.log-entry-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+}
+
+.log-efta-link {
+  font-size: 0.9rem;
+  color: #72d3ff;
+  border-bottom-color: rgba(114, 211, 255, 0.55);
+  font-weight: 600;
+}
+
+.log-entry-description {
+  margin: 0;
+  color: #d9e9f6;
+  font-size: 0.86rem;
+  line-height: 1.36;
+}
+
+.log-entry-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.77rem;
+}
+
+.log-dot {
+  opacity: 0.6;
+}
+
+.log-entry-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.65rem;
+  margin-bottom: 0.7rem;
+}
+
+.log-entry-kicker {
+  margin: 0 0 0.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+.log-entry-head h2 {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.22;
+}
+
+.log-entry-head-meta {
+  display: grid;
+  gap: 0.16rem;
+  text-align: right;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.log-entry-head-meta p {
+  margin: 0;
+}
+
+.log-entry-head-meta span {
+  color: #b8d8ec;
+}
+
+.log-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.5rem 0.7rem;
+}
+
+.log-entry-cell {
+  border: 1px solid rgba(138, 170, 197, 0.18);
+  border-radius: 10px;
+  background: rgba(8, 16, 29, 0.7);
+  padding: 0.45rem 0.55rem;
+}
+
+.log-entry-cell dt {
+  margin: 0;
+  color: #9ec2da;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.log-entry-cell dd {
+  margin: 0.22rem 0 0;
+  color: #e8f5ff;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .error-panel {
@@ -2433,6 +2636,19 @@ tr:hover td {
 
   .global-nav-desktop-links {
     display: none;
+  }
+
+  .log-page .detail-nav {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .log-entry-head {
+    flex-direction: column;
+  }
+
+  .log-entry-head-meta {
+    text-align: left;
   }
 
   .filters {

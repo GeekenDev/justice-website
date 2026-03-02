@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getDeletedDocDescriptions,
+  getFileDescriptions,
   getDeletedDocUserBookmarks,
   getDeletedDocUserVotes,
   getTopUpvotedDeletedDocs,
@@ -16,14 +17,16 @@ export async function GET(request: NextRequest) {
     const voterId = request.headers.get("x-voter-id")?.trim() ?? "";
     const results = await getTopUpvotedDeletedDocs(limit);
     const eftaIds = results.map((row) => row.efta_id);
-    const [userVotes, userBookmarks, cachedDescriptions] = await Promise.all([
+    const [userVotes, userBookmarks, cachedDescriptions, fileDescriptions] = await Promise.all([
       getDeletedDocUserVotes(eftaIds, voterId),
       getDeletedDocUserBookmarks(eftaIds, voterId),
       getDeletedDocDescriptions(eftaIds),
+      getFileDescriptions(eftaIds),
     ]);
     const rowsWithDescriptions = results.map((row) => ({
       ...row,
-      document_description: cachedDescriptions[row.efta_id] ?? null,
+      document_description:
+        fileDescriptions[row.efta_id] ?? cachedDescriptions[row.efta_id] ?? null,
       thumbnail_url: row.thumbnail_url ?? null,
       userVoted: userVotes[row.efta_id] ?? false,
       userBookmarked: userBookmarks[row.efta_id] ?? false,

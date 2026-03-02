@@ -3,9 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import ContinuousPdfViewer from "@/components/continuous-pdf-viewer";
-import { isMobileSafari } from "@/lib/client/is-mobile-safari";
-import { openMobilePdfPreservingPage } from "@/lib/client/open-mobile-pdf";
+import MobileChunkedPdfModal from "@/components/mobile-chunked-pdf-modal";
 
 type TopDeletedDoc = {
   efta_id: string;
@@ -79,21 +77,6 @@ function BookmarkIcon({ saved }: { saved: boolean }) {
   );
 }
 
-function NoteIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="bookmark-icon">
-      <path
-        d="M5 3h10l4 4v14H5z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinejoin="round"
-      />
-      <path d="M15 3v4h4" fill="none" stroke="currentColor" strokeWidth="1.7" />
-    </svg>
-  );
-}
-
 export default function DeletedDocsTopUpvotedPage() {
   const restoreKey = "restore:deleted-docs-top-upvoted";
   const [results, setResults] = useState<TopDeletedDoc[]>([]);
@@ -107,11 +90,6 @@ export default function DeletedDocsTopUpvotedPage() {
   const [votingEftaId, setVotingEftaId] = useState<string | null>(null);
   const [bookmarkingEftaId, setBookmarkingEftaId] = useState<string | null>(null);
   const [bookmarkTotal, setBookmarkTotal] = useState<number | null>(null);
-  const [showNoteSidebar, setShowNoteSidebar] = useState(false);
-  const [noteDraft, setNoteDraft] = useState("");
-  const [noteLoading, setNoteLoading] = useState(false);
-  const [noteSaving, setNoteSaving] = useState(false);
-  const [bookmarkNotes, setBookmarkNotes] = useState<Record<string, string>>({});
   const [hiddenThumbnails, setHiddenThumbnails] = useState<Record<string, true>>({});
   const pageSize = 25;
   const [pendingScrollY, setPendingScrollY] = useState<number | null>(null);
@@ -238,50 +216,6 @@ export default function DeletedDocsTopUpvotedPage() {
     };
   }, [previewUrl]);
 
-  useEffect(() => {
-    if (!previewEftaId) {
-      setShowNoteSidebar(false);
-      setNoteDraft("");
-      return;
-    }
-    setNoteDraft(bookmarkNotes[previewEftaId] ?? "");
-  }, [bookmarkNotes, previewEftaId]);
-
-  useEffect(() => {
-    if (!previewEftaId || !voterId) {
-      return;
-    }
-    const currentEftaId = previewEftaId;
-    let cancelled = false;
-    async function loadNoteForPreview() {
-      try {
-        const params = new URLSearchParams({ eftaId: currentEftaId }).toString();
-        const response = await fetch(`/api/deleted-browser/bookmark?${params}`, {
-          headers: { "x-voter-id": voterId },
-        });
-        if (!response.ok || cancelled) {
-          return;
-        }
-        const payload = (await response.json()) as { note?: string | null };
-        const note = payload.note ?? "";
-        setBookmarkNotes((prev) => ({ ...prev, [currentEftaId]: note }));
-        setShowNoteSidebar(note.trim().length > 0);
-      } catch {
-        // Non-blocking.
-      }
-    }
-    void loadNoteForPreview();
-    return () => {
-      cancelled = true;
-    };
-  }, [previewEftaId, voterId]);
-
-  const previewResult = previewEftaId
-    ? results.find((item) => item.efta_id === previewEftaId) ?? null
-    : null;
-  const noteKey = previewEftaId ?? "";
-  const savedNote = noteKey ? (bookmarkNotes[noteKey] ?? "") : "";
-  const isNoteDirty = noteDraft !== savedNote;
   const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
   const startIndex = (page - 1) * pageSize;
   const pagedResults = useMemo(
@@ -299,19 +233,12 @@ export default function DeletedDocsTopUpvotedPage() {
   }, [page, totalPages]);
 
   function openPreview(result: TopDeletedDoc) {
-    const sourceUrl = result.original_link;
-    if (!sourceUrl) {
+    const normalized = result.efta_id.trim().toUpperCase();
+    if (!normalized) {
       return;
     }
-    if (isMobileSafari()) {
-      openMobilePdfPreservingPage(`/documents/${encodeURIComponent(result.efta_id)}`, {
-        key: restoreKey,
-        value: { page, scrollY: window.scrollY },
-      });
-      return;
-    }
-    setPreviewTitle(result.efta_id);
-    setPreviewUrl(sourceUrl);
+    setPreviewTitle(`Document Viewer - ${normalized}`);
+    setPreviewUrl(`/api/pdf/${encodeURIComponent(normalized)}`);
     setPreviewEftaId(result.efta_id);
   }
 
@@ -383,10 +310,7 @@ export default function DeletedDocsTopUpvotedPage() {
     }
   }
 
-  async function onBookmark(
-    result: TopDeletedDoc,
-    options?: { note?: string | null },
-  ) {
+  async function onBookmark(result: TopDeletedDoc) {
     setBookmarkingEftaId(result.efta_id);
     setError(null);
     try {
@@ -404,13 +328,10 @@ export default function DeletedDocsTopUpvotedPage() {
             original_link: result.original_link,
             doj_link: result.doj_link,
           },
-          note: options?.note ?? null,
+          note: null,
         }),
       });
-      const payload = (await response.json()) as {
-        totalBookmarks?: number;
-        note?: string | null;
-      };
+      const payload = (await response.json()) as { totalBookmarks?: number };
       if (!response.ok) {
         throw new Error("Failed to bookmark deleted doc");
       }
@@ -428,52 +349,10 @@ export default function DeletedDocsTopUpvotedPage() {
             : item,
         ),
       );
-      if (typeof payload.note === "string") {
-        setBookmarkNotes((prev) => ({
-          ...prev,
-          [result.efta_id]: payload.note ?? "",
-        }));
-      }
     } catch (err) {
       setError(String(err));
     } finally {
       setBookmarkingEftaId(null);
-    }
-  }
-
-  async function onOpenNotes() {
-    if (!previewEftaId) {
-      return;
-    }
-    setShowNoteSidebar((prev) => !prev);
-    setNoteLoading(true);
-    try {
-      const params = new URLSearchParams({ eftaId: previewEftaId! }).toString();
-      const response = await fetch(`/api/deleted-browser/bookmark?${params}`, {
-        headers: voterId ? { "x-voter-id": voterId } : {},
-      });
-      if (!response.ok) {
-        return;
-      }
-      const payload = (await response.json()) as { note?: string | null };
-      setBookmarkNotes((prev) => ({
-        ...prev,
-        [previewEftaId]: payload.note ?? "",
-      }));
-    } finally {
-      setNoteLoading(false);
-    }
-  }
-
-  async function onSaveNote() {
-    if (!previewResult) {
-      return;
-    }
-    setNoteSaving(true);
-    try {
-      await onBookmark(previewResult, { note: noteDraft });
-    } finally {
-      setNoteSaving(false);
     }
   }
 
@@ -690,106 +569,22 @@ export default function DeletedDocsTopUpvotedPage() {
         </div>
       </section>
 
-      {previewUrl && (
-        <div
-          className="pdf-modal-backdrop"
-          onClick={() => {
+      {previewUrl ? (
+        <MobileChunkedPdfModal
+          sourceUrl={previewUrl}
+          title={previewTitle}
+          kicker="Document Viewer"
+          eftaId={previewEftaId ?? ""}
+          voteUrl={previewUrl}
+          voteTitle={previewEftaId ?? undefined}
+          voteFileName={previewEftaId ? `${previewEftaId}.pdf` : undefined}
+          onClose={() => {
             setPreviewUrl(null);
+            setPreviewTitle("");
             setPreviewEftaId(null);
           }}
-          role="presentation"
-        >
-          <section
-            className="pdf-modal panel"
-            role="dialog"
-            aria-modal="true"
-            aria-label={previewTitle || "PDF Preview"}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className="pdf-modal-head">
-              <h2>{previewTitle || "PDF Preview"}</h2>
-              <div className="pdf-modal-actions">
-                {previewResult && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void onUpvote(previewResult)}
-                      disabled={
-                        previewResult.userVoted ||
-                        votingEftaId === previewResult.efta_id
-                      }
-                    >
-                      ▲ {previewResult.vote_count}
-                    </button>
-                    <button
-                      type="button"
-                      className="bookmark-btn"
-                      onClick={() => void onBookmark(previewResult)}
-                      disabled={
-                        previewResult.userBookmarked ||
-                        bookmarkingEftaId === previewResult.efta_id
-                      }
-                    >
-                      <span className="bookmark-content">
-                        <BookmarkIcon saved={previewResult.userBookmarked} />
-                        <span className="mono">{bookmarkTotal ?? 0}</span>
-                      </span>
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  className="bookmark-btn"
-                  onClick={() => void onOpenNotes()}
-                  disabled={!previewEftaId}
-                >
-                  <span className="bookmark-content">
-                    <NoteIcon />
-                    <span>Note</span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPreviewUrl(null);
-                    setPreviewEftaId(null);
-                  }}
-                >
-                  Close
-                </button>
-              </div>
-            </header>
-            <div className={`pdf-modal-body${showNoteSidebar ? " has-note-sidebar" : ""}`}>
-              <div className="pdf-modal-frame-wrap">
-                <ContinuousPdfViewer
-                  sourceUrl={previewUrl}
-                  title={previewTitle || "PDF Preview"}
-                  className="pdf-modal-pdf-scroll"
-                />
-              </div>
-              {showNoteSidebar && (
-                <aside className="note-sidebar">
-                  <h3>Bookmark Note</h3>
-                  {noteLoading ? <p className="empty">Loading note...</p> : null}
-                  <textarea
-                    value={noteDraft}
-                    onChange={(event) => setNoteDraft(event.target.value)}
-                    placeholder="Add your note for this bookmarked item..."
-                    rows={10}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void onSaveNote()}
-                    disabled={noteSaving || !isNoteDirty}
-                  >
-                    {noteSaving ? "Saving..." : isNoteDirty ? "Save Note" : "Saved"}
-                  </button>
-                </aside>
-              )}
-            </div>
-          </section>
-        </div>
-      )}
+        />
+      ) : null}
     </main>
   );
 }

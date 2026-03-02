@@ -18,6 +18,7 @@ type FileRow = {
   last_checked: string | null;
   doj_website_page: number | null;
   notes: string | null;
+  description?: string | null;
   original_hash: string | null;
   current_hash: string | null;
   diff_scan_id?: string | number | null;
@@ -626,77 +627,93 @@ export default function HomePage() {
           </div>
         </article>
 
-        <aside className="panel details">
-          <header className="results-head">
-            <h2>Details</h2>
-            <p>
-              {loadingDetail
-                ? "Loading record..."
-                : selected
-                  ? selected.file.efta_id
-                  : "Select a row"}
-            </p>
-          </header>
+        <div className="dashboard-side-stack">
+          {selected?.file.description?.trim() ? (
+            <article className="panel dashboard-description-card">
+              <header className="results-head">
+                <h2>Description</h2>
+                <p>{selected.file.efta_id}</p>
+              </header>
+              <div className="detail-list">
+                <p>{selected.file.description.trim()}</p>
+              </div>
+            </article>
+          ) : null}
 
-          {!selected && !loadingDetail && (
-            <p className="empty">
-              Click any result row to inspect the full record.
-            </p>
-          )}
+          <aside className="panel details">
+            <header className="results-head">
+              <h2>Details</h2>
+              <p>
+                {loadingDetail
+                  ? "Loading record..."
+                  : selected
+                    ? selected.file.efta_id
+                    : "Select a row"}
+              </p>
+            </header>
 
-          {selected && (
-            <div className="detail-list">
-              <p>
-                <strong>EFTA:</strong>{" "}
-                <span className="mono">{selected.file.efta_id}</span>
+            {!selected && !loadingDetail && (
+              <p className="empty">
+                Click any result row to inspect the full record.
               </p>
-              <p>
-                <strong>Parent:</strong>{" "}
-                <span className="mono">
-                  {selected.file.parent_efta_id ?? "None"}
-                </span>
-              </p>
-              <p>
-                <strong>Dataset:</strong> {selected.file.dataset ?? "-"}
-              </p>
-              <p>
-                <strong>File Path:</strong>{" "}
-                <span className="mono">{selected.file.file_path ?? "-"}</span>
-              </p>
-              <p>
-                <strong>Page Count:</strong>{" "}
-                {formatNumber(selected.file.page_count)}
-              </p>
-              <p>
-                <strong>Altered:</strong> {selected.file.altered ? "Yes" : "No"}
-              </p>
-              <p>
-                <strong>Hidden:</strong> {selected.file.hidden ? "Yes" : "No"}
-              </p>
-              <p>
-                <strong>Deleted:</strong> {selected.file.deleted ? "Yes" : "No"}
-              </p>
-              <p>
-                <strong>DOJ Page:</strong>{" "}
-                {formatNumber(selected.file.doj_website_page)}
-              </p>
-              <p>
-                <strong>Last Checked:</strong>{" "}
-                {asDate(selected.file.last_checked)}
-              </p>
-              <p>
-                <strong>Children:</strong>{" "}
-                {formatNumber(selected.children.length)}
-              </p>
-              {selected.parent && (
+            )}
+
+            {selected && (
+              <div className="detail-list">
                 <p>
-                  <strong>Parent Exists:</strong>{" "}
-                  <span className="mono">{selected.parent.efta_id}</span>
+                  <strong>EFTA:</strong>{" "}
+                  <span className="mono">{selected.file.efta_id}</span>
                 </p>
-              )}
-            </div>
-          )}
-        </aside>
+                <p>
+                  <strong>Parent:</strong>{" "}
+                  <span className="mono">
+                    {selected.file.parent_efta_id ?? "None"}
+                  </span>
+                </p>
+                <p>
+                  <strong>Dataset:</strong> {selected.file.dataset ?? "-"}
+                </p>
+                <p>
+                  <strong>File Path:</strong>{" "}
+                  <span className="mono">{selected.file.file_path ?? "-"}</span>
+                </p>
+                <p>
+                  <strong>Page Count:</strong>{" "}
+                  {formatNumber(selected.file.page_count)}
+                </p>
+                <p>
+                  <strong>Altered:</strong>{" "}
+                  {selected.file.altered ? "Yes" : "No"}
+                </p>
+                <p>
+                  <strong>Hidden:</strong> {selected.file.hidden ? "Yes" : "No"}
+                </p>
+                <p>
+                  <strong>Deleted:</strong>{" "}
+                  {selected.file.deleted ? "Yes" : "No"}
+                </p>
+                <p>
+                  <strong>DOJ Page:</strong>{" "}
+                  {formatNumber(selected.file.doj_website_page)}
+                </p>
+                <p>
+                  <strong>Last Checked:</strong>{" "}
+                  {asDate(selected.file.last_checked)}
+                </p>
+                <p>
+                  <strong>Children:</strong>{" "}
+                  {formatNumber(selected.children.length)}
+                </p>
+                {selected.parent && (
+                  <p>
+                    <strong>Parent Exists:</strong>{" "}
+                    <span className="mono">{selected.parent.efta_id}</span>
+                  </p>
+                )}
+              </div>
+            )}
+          </aside>
+        </div>
       </section>
     </main>
   );

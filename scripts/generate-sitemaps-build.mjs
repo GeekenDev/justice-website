@@ -2,6 +2,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Pool } from "pg";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const DEFAULT_BATCH_SIZE = 45000;
 
@@ -16,7 +19,7 @@ function parseArgs(argv) {
     siteUrl: "",
     batchSize: Number(process.env.SITEMAP_BATCH_SIZE || DEFAULT_BATCH_SIZE),
     force: false,
-    flagName: process.env.SITEMAP_BUILD_FLAG || "SITEMAP_REBUILD"
+    flagName: process.env.SITEMAP_BUILD_FLAG || "SITEMAP_REBUILD",
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -99,7 +102,7 @@ async function readWranglerSiteUrl(configPath) {
   return readFirstMatch(
     raw,
     /"vars"\s*:\s*{[\s\S]*?"SITE_URL"\s*:\s*"([^"]+)"/m,
-    "vars.SITE_URL"
+    "vars.SITE_URL",
   );
 }
 
@@ -122,20 +125,23 @@ function parseSsl(connectionString) {
 function createPool() {
   const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error("Missing POSTGRES_URL (or DATABASE_URL) environment variable.");
+    throw new Error(
+      "Missing POSTGRES_URL (or DATABASE_URL) environment variable.",
+    );
   }
 
   return new Pool({
     connectionString,
     ssl: parseSsl(connectionString),
-    max: 4
+    max: 4,
   });
 }
 
 function buildUrlsetXml(urlEntries) {
   const body = urlEntries
     .map(
-      (entry) => `  <url>\n    <loc>${xmlEscape(entry.loc)}</loc>\n    <lastmod>${xmlEscape(entry.lastmod)}</lastmod>\n    <changefreq>${xmlEscape(entry.changefreq)}</changefreq>\n    <priority>${xmlEscape(String(entry.priority))}</priority>\n  </url>`
+      (entry) =>
+        `  <url>\n    <loc>${xmlEscape(entry.loc)}</loc>\n    <lastmod>${xmlEscape(entry.lastmod)}</lastmod>\n    <changefreq>${xmlEscape(entry.changefreq)}</changefreq>\n    <priority>${xmlEscape(String(entry.priority))}</priority>\n  </url>`,
     )
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`;
@@ -144,7 +150,8 @@ function buildUrlsetXml(urlEntries) {
 function buildSitemapIndexXml(entries) {
   const body = entries
     .map(
-      (entry) => `  <sitemap>\n    <loc>${xmlEscape(entry.loc)}</loc>\n    <lastmod>${xmlEscape(entry.lastmod)}</lastmod>\n  </sitemap>`
+      (entry) =>
+        `  <sitemap>\n    <loc>${xmlEscape(entry.loc)}</loc>\n    <lastmod>${xmlEscape(entry.lastmod)}</lastmod>\n  </sitemap>`,
     )
     .join("\n");
 
@@ -158,10 +165,11 @@ async function main() {
     return;
   }
 
-  const shouldBuild = args.force || /^(1|true|yes)$/i.test(process.env[args.flagName] || "");
+  const shouldBuild =
+    args.force || /^(1|true|yes)$/i.test(process.env[args.flagName] || "");
   if (!shouldBuild) {
     logInfo(
-      `Skipping sitemap generation. Set ${args.flagName}=1 or pass --force to regenerate.`
+      `Skipping sitemap generation. Set ${args.flagName}=1 or pass --force to regenerate.`,
     );
     return;
   }
@@ -170,8 +178,13 @@ async function main() {
     throw new Error("--batch-size must be a positive integer.");
   }
 
-  const wranglerConfigPath = path.resolve(process.cwd(), args.wranglerConfigPath);
-  const siteUrl = (args.siteUrl || (await readWranglerSiteUrl(wranglerConfigPath))).replace(/\/+$/, "");
+  const wranglerConfigPath = path.resolve(
+    process.cwd(),
+    args.wranglerConfigPath,
+  );
+  const siteUrl = (
+    args.siteUrl || (await readWranglerSiteUrl(wranglerConfigPath))
+  ).replace(/\/+$/, "");
   const now = toIsoDate(Date.now());
 
   const publicDir = path.resolve(process.cwd(), "public");
@@ -183,7 +196,9 @@ async function main() {
 
   const pool = createPool();
 
-  logInfo(`Generating sitemaps with Postgres, siteUrl=${siteUrl}, batchSize=${args.batchSize}`);
+  logInfo(
+    `Generating sitemaps with Postgres, siteUrl=${siteUrl}, batchSize=${args.batchSize}`,
+  );
 
   const indexEntries = [];
 
@@ -192,8 +207,32 @@ async function main() {
       loc: `${siteUrl}/`,
       lastmod: now,
       changefreq: "daily",
-      priority: 1
-    }
+      priority: 1,
+    },
+    {
+      loc: `${siteUrl}/search`,
+      lastmod: now,
+      changefreq: "daily",
+      priority: 0.9,
+    },
+    {
+      loc: `${siteUrl}/deleted-docs-browser`,
+      lastmod: now,
+      changefreq: "daily",
+      priority: 0.9,
+    },
+    {
+      loc: `${siteUrl}/archive-downloads`,
+      lastmod: now,
+      changefreq: "weekly",
+      priority: 0.8,
+    },
+    {
+      loc: `${siteUrl}/doj-top-upvoted`,
+      lastmod: now,
+      changefreq: "daily",
+      priority: 0.9,
+    },
   ]);
   const dashboardPath = path.join(sitemapsDir, "dashboard.xml");
   await fs.writeFile(dashboardPath, dashboardXml, "utf8");
@@ -212,7 +251,7 @@ async function main() {
       ORDER BY efta_id ASC
       LIMIT $2
       `,
-      [lastEftaId, args.batchSize]
+      [lastEftaId, args.batchSize],
     );
 
     const rows = rowsResult.rows;
@@ -231,22 +270,28 @@ async function main() {
       loc: `${siteUrl}/file/${encodeURIComponent(String(row.efta_id))}`,
       lastmod: now,
       changefreq: "daily",
-      priority: 0.6
+      priority: 0.6,
     }));
 
     await fs.writeFile(filePath, buildUrlsetXml(urls), "utf8");
     indexEntries.push({ loc: `${siteUrl}/sitemaps/${fileName}`, lastmod: now });
 
-    logInfo(`Wrote sitemap ${fileName} with ${rows.length} URLs (last efta_id=${lastEftaId})`);
+    logInfo(
+      `Wrote sitemap ${fileName} with ${rows.length} URLs (last efta_id=${lastEftaId})`,
+    );
   }
 
   await pool.end();
 
   const sitemapIndexPath = path.join(publicDir, "sitemap.xml");
-  await fs.writeFile(sitemapIndexPath, buildSitemapIndexXml(indexEntries), "utf8");
+  await fs.writeFile(
+    sitemapIndexPath,
+    buildSitemapIndexXml(indexEntries),
+    "utf8",
+  );
 
   logInfo(
-    `Sitemap generation complete. URL files=${indexEntries.length}, file URLs=${totalRows}, output=${sitemapIndexPath}`
+    `Sitemap generation complete. URL files=${indexEntries.length}, file URLs=${totalRows}, output=${sitemapIndexPath}`,
   );
 }
 

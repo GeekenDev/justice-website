@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { Client } from "pg";
+import dotenv from "dotenv";
 
+dotenv.config();
 function parseSsl(connectionString) {
   try {
     const url = new URL(connectionString);
@@ -20,7 +22,9 @@ function parseSsl(connectionString) {
 function getConnectionString() {
   const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error("Missing POSTGRES_URL (or DATABASE_URL) environment variable.");
+    throw new Error(
+      "Missing POSTGRES_URL (or DATABASE_URL) environment variable.",
+    );
   }
   return connectionString;
 }

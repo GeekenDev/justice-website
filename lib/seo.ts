@@ -1,5 +1,12 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
+export const primarySitelinkPages = [
+  { name: "Search", path: "/search" },
+  { name: "Deleted Docs Browser", path: "/deleted-docs-browser" },
+  { name: "Archive Downloads", path: "/archive-downloads" },
+  { name: "Top Searches", path: "/doj-top-upvoted" },
+] as const;
+
 export function getSiteUrl() {
   let workerUrl = "";
   try {

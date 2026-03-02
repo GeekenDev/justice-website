@@ -4,6 +4,18 @@ import { Client } from "pg";
 const DEFAULT_INTERVAL_MS = 2000;
 const DEFAULT_LIMIT = 250;
 
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  magenta: "\x1b[35m",
+  cyan: "\x1b[36m",
+};
+
 function parseArgs(argv) {
   const args = {
     intervalMs: DEFAULT_INTERVAL_MS,
@@ -101,6 +113,49 @@ function formatEventLabel(source) {
   return source === "advanced" ? "ADVANCED SEARCH" : "DOJSEARCH";
 }
 
+function colorEnabled() {
+  if (process.env.NO_COLOR) {
+    return false;
+  }
+  if (process.env.FORCE_COLOR && process.env.FORCE_COLOR !== "0") {
+    return true;
+  }
+  return Boolean(process.stdout?.isTTY);
+}
+
+function paint(text, ...styles) {
+  if (!colorEnabled() || styles.length === 0) {
+    return text;
+  }
+  const prefix = styles.map((style) => ANSI[style] || "").join("");
+  return `${prefix}${text}${ANSI.reset}`;
+}
+
+function formatHits(hits) {
+  if (hits >= 20) {
+    return paint(`hits=${hits}`, "bold", "red");
+  }
+  if (hits >= 5) {
+    return paint(`hits=${hits}`, "bold", "yellow");
+  }
+  return paint(`hits=${hits}`, "bold", "green");
+}
+
+function formatQueryWatchRow({ source, queryText, hitCount, lastSuccessAt, delta }) {
+  const prefix = paint(`[${now()}]`, "dim", "cyan");
+  const labelColor = source === "advanced" ? "magenta" : "blue";
+  const label = paint(formatEventLabel(source), "bold", labelColor);
+  const query = paint(`"${queryText}"`, "bold", "yellow");
+  const hits = formatHits(hitCount);
+  const at = paint(`@ ${lastSuccessAt}`, "dim");
+  const deltaText =
+    typeof delta === "number" && delta > 0
+      ? ` ${paint(`(+${delta})`, "green", "bold")}`
+      : "";
+
+  return `${prefix} ${label}: ${query} ${hits}${deltaText} ${at}`;
+}
+
 async function fetchLatestRows(client, limit) {
   const result = await client.query(
     `
@@ -177,10 +232,13 @@ async function main() {
       const hitCount = Number(row.hit_count) || 0;
       seen.set(key, { lastMs, hitCount });
       if (args.replayLatest) {
-        const label = formatEventLabel(row.source);
-        const pageSuffix = "";
         console.log(
-          `[${now()}] ${label}: "${row.query_text}"${pageSuffix} hits=${hitCount} @ ${row.last_success_at}`,
+          formatQueryWatchRow({
+            source: row.source,
+            queryText: row.query_text,
+            hitCount,
+            lastSuccessAt: row.last_success_at,
+          }),
         );
       }
     }
@@ -200,10 +258,16 @@ async function main() {
           if (!isNew) {
             continue;
           }
+          const delta = previous ? Math.max(0, currentHits - previous.hitCount) : undefined;
           seen.set(key, { lastMs: currentMs, hitCount: currentHits });
-          const label = formatEventLabel(row.source);
           console.log(
-            `[${now()}] ${label}: "${row.query_text}" hits=${currentHits} @ ${row.last_success_at}`,
+            formatQueryWatchRow({
+              source: row.source,
+              queryText: row.query_text,
+              hitCount: currentHits,
+              lastSuccessAt: row.last_success_at,
+              delta,
+            }),
           );
         }
       } catch (error) {

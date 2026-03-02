@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, IBM_Plex_Mono, Arimo } from "next/font/google";
-import { getSiteUrl } from "@/lib/seo";
+import { absoluteUrl, getSiteUrl, primarySitelinkPages } from "@/lib/seo";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -20,11 +20,32 @@ const arimo = Arimo({
 });
 
 const siteUrl = getSiteUrl();
+const websiteJsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": `${siteUrl}/#website`,
+      url: siteUrl,
+      name: "Epstein Files Explorer",
+      potentialAction: {
+        "@type": "SearchAction",
+        target: `${absoluteUrl("/search")}?q={search_term_string}`,
+        "query-input": "required name=search_term_string",
+      },
+    },
+    ...primarySitelinkPages.map((page) => ({
+      "@type": "SiteNavigationElement",
+      name: page.name,
+      url: absoluteUrl(page.path),
+    })),
+  ],
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Epstein Files Dashboard",
+    default: "Epstein Files Search",
     template: "%s | Epstein Files",
   },
   description:
@@ -59,6 +80,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+        />
+      </head>
       <body
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} ${arimo.variable}`}
       >

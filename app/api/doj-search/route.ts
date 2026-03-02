@@ -365,7 +365,7 @@ export async function GET(request: NextRequest) {
         userVoted: userVotes[result.url] ?? false,
         userBookmarked: userBookmarks[result.url] ?? false,
       }));
-      if (enrichedResults.length > 0) {
+      if (response.ok) {
         await recordDojSearchQuery(keys);
       }
       const responsePayload = {
@@ -412,7 +412,7 @@ export async function GET(request: NextRequest) {
       userVoted: userVotes[result.url] ?? false,
       userBookmarked: userBookmarks[result.url] ?? false,
     }));
-    if (resultsWithVotes.length > 0 && !accessDenied && response.ok) {
+    if (!accessDenied && response.ok) {
       await recordDojSearchQuery(keys);
     }
 

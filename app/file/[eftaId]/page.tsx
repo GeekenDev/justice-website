@@ -79,6 +79,7 @@ export default async function FileDetailsPage({ params }: FilePageProps) {
 
   const originalLink = buildOriginalFileLink(record.file);
   const currentDojLink = buildCurrentDojLink(record.file);
+  const fileDescription = record.file.description?.trim() || null;
   const statusLabel = record.file.deleted
     ? "Deleted"
     : record.file.altered
@@ -218,42 +219,55 @@ export default async function FileDetailsPage({ params }: FilePageProps) {
           </div>
         </article>
 
-        <article className="panel file-relationships-panel">
-          <header className="results-head">
-            <h2>Relationships</h2>
-          </header>
-          <div className="detail-list">
-            <p>
-              <strong>Parent Record:</strong>{" "}
-              {record.parent ? (
-                <Link
-                  href={`/file/${encodeURIComponent(record.parent.efta_id)}`}
-                  className="table-link mono"
-                >
-                  {record.parent.efta_id}
-                </Link>
-              ) : (
-                "None"
-              )}
-            </p>
-            <p>
-              <strong>Children:</strong> {formatNumber(record.children.length)}
-            </p>
-            {record.children.length > 0 && (
-              <div className="children-list">
-                {record.children.map((child) => (
+        <div className="file-side-stack">
+          {fileDescription ? (
+            <article className="panel file-description-panel">
+              <header className="results-head">
+                <h2>Description</h2>
+              </header>
+              <div className="detail-list">
+                <p>{fileDescription}</p>
+              </div>
+            </article>
+          ) : null}
+
+          <article className="panel file-relationships-panel">
+            <header className="results-head">
+              <h2>Relationships</h2>
+            </header>
+            <div className="detail-list">
+              <p>
+                <strong>Parent Record:</strong>{" "}
+                {record.parent ? (
                   <Link
-                    key={child.efta_id}
-                    href={`/file/${encodeURIComponent(child.efta_id)}`}
+                    href={`/file/${encodeURIComponent(record.parent.efta_id)}`}
                     className="table-link mono"
                   >
-                    {child.efta_id}
+                    {record.parent.efta_id}
                   </Link>
-                ))}
-              </div>
-            )}
-          </div>
-        </article>
+                ) : (
+                  "None"
+                )}
+              </p>
+              <p>
+                <strong>Children:</strong> {formatNumber(record.children.length)}
+              </p>
+              {record.children.length > 0 && (
+                <div className="children-list">
+                  {record.children.map((child) => (
+                    <Link
+                      key={child.efta_id}
+                      href={`/file/${encodeURIComponent(child.efta_id)}`}
+                      className="table-link mono"
+                    >
+                      {child.efta_id}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          </article>
+        </div>
       </section>
     </main>
   );

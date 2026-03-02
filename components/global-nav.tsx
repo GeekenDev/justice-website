@@ -62,7 +62,10 @@ export default function GlobalNav({
 
   return (
     <>
-      <section className="panel detail-nav link-bar global-nav-bar">
+      <section
+        className="panel detail-nav link-bar global-nav-bar"
+        aria-label="Quick links"
+      >
         <button
           type="button"
           className="global-nav-toggle"
@@ -120,7 +123,10 @@ export default function GlobalNav({
                     <span>{item.label}</span>
                   </Link>
                 ) : (
-                  <div key={`mobile-group-${item.label}`} className="global-nav-group">
+                  <div
+                    key={`mobile-group-${item.label}`}
+                    className="global-nav-group"
+                  >
                     <button
                       type="button"
                       className="global-nav-group-toggle"

@@ -8,7 +8,7 @@
     },
     {
       "href": "/search",
-      "label": "Advanced Search"
+      "label": "Search"
     },
     {
       "label": "Top Searches",
@@ -18,10 +18,14 @@
       "href": "/archive-downloads",
       "label": "Archive Downloads"
     },
+    {
+      "href": "/log",
+      "label": "Change Log"
+    },
 
     {
       "href": "/deleted-docs-browser",
-      "label": "Browse Deleted Docs"
+      "label": "Deleted Docs Browser"
     },
     {
       "href": "/deleted-docs-top-upvoted",

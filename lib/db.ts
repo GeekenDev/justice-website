@@ -14,6 +14,7 @@ type DbFileRow = {
   last_checked: string | null;
   doj_website_page: number | null;
   notes: string | null;
+  description?: string | null;
   original_hash: string | null;
   current_hash: string | null;
   diff_scan_id?: string | number | null;
@@ -33,6 +34,12 @@ type StatsRow = {
   distinct_datasets: string | number;
   avg_page_count: string | number | null;
   max_page_count: string | number | null;
+};
+type FilesChangeLogColumnRow = {
+  column_name: string;
+  data_type: string;
+  udt_name: string;
+  ordinal_position: string | number;
 };
 
 type DOJSearchSuggestionRow = {
@@ -109,6 +116,10 @@ type DeletedDocDescriptionRow = {
   efta_id: string;
   document_description: string | null;
 };
+type FileDescriptionRow = {
+  efta_id: string;
+  description: string | null;
+};
 type FileSourceLookupRow = {
   efta_id: string;
   dataset: string | null;
@@ -132,6 +143,19 @@ type DeletedDocBookmarkedRow = {
   doj_link: string | null;
   note: string | null;
   created_at: string;
+};
+
+export type FilesChangeLogFeedItem = {
+  efta_id: string;
+  changed_at: string | null;
+  change_kind: "deleted" | "restored";
+  description: string | null;
+  hash_matches_original: boolean | null;
+  exists_in_files: boolean;
+};
+
+export type FilesChangeLogFeed = {
+  items: FilesChangeLogFeedItem[];
 };
 
 export type SearchParams = {
@@ -569,6 +593,28 @@ export async function getFileById(eftaId: string, debug?: QueryCacheDebug) {
       return null;
     }
 
+    let fileDescription: string | null = null;
+    try {
+      const descriptionResult = await client.query<{ description: string | null }>(
+        `
+          SELECT description
+          FROM files
+          WHERE efta_id = $1
+          LIMIT 1
+        `,
+        [file.efta_id],
+      );
+      fileDescription = descriptionResult.rows[0]?.description ?? null;
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+      if (code !== "42703") {
+        throw error;
+      }
+    }
+
     const parentResult = file.parent_efta_id
       ? await client.query<DbFileRow>(
           `
@@ -591,9 +637,236 @@ export async function getFileById(eftaId: string, debug?: QueryCacheDebug) {
     );
 
     return {
-      file,
+      file: {
+        ...file,
+        description: fileDescription,
+      },
       parent: parentResult.rows[0] ?? null,
       children: childrenResult.rows,
+    };
+  });
+}
+
+function quoteIdentifier(identifier: string) {
+  return `"${identifier.replace(/"/g, "\"\"")}"`;
+}
+
+function getPreferredTimeColumn(columnNames: string[]) {
+  const preferredColumns = [
+    "created_at",
+    "updated_at",
+    "changed_at",
+    "change_at",
+    "change_time",
+    "timestamp",
+    "logged_at",
+    "inserted_at",
+    "recorded_at",
+    "event_time",
+    "time",
+  ];
+  const normalized = new Set(columnNames.map((name) => name.toLowerCase()));
+  for (const candidate of preferredColumns) {
+    if (normalized.has(candidate)) {
+      return columnNames.find((name) => name.toLowerCase() === candidate) ?? null;
+    }
+  }
+  return null;
+}
+
+export async function getFilesChangeLogFeed(params?: {
+  limit?: number;
+  offset?: number;
+}): Promise<FilesChangeLogFeed> {
+  const safeLimit = Math.max(1, Math.min(500, Math.floor(params?.limit ?? 120)));
+  const safeOffset = Math.max(0, Math.floor(params?.offset ?? 0));
+
+  return withClient(async (client) => {
+    const logColumnsResult = await client.query<FilesChangeLogColumnRow>(
+      `
+      SELECT column_name, data_type, udt_name, ordinal_position
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'files_change_log'
+      ORDER BY ordinal_position ASC
+      `,
+    );
+
+    const columns = logColumnsResult.rows
+      .map((row) => row.column_name)
+      .filter((name) => Boolean(name));
+    if (columns.length === 0) {
+      return { items: [] };
+    }
+
+    const eftaColumn =
+      columns.find((name) => name.toLowerCase() === "efta_id") ||
+      columns.find((name) => name.toLowerCase() === "file_id") ||
+      columns.find((name) => name.toLowerCase() === "id") ||
+      null;
+    if (!eftaColumn) {
+      return { items: [] };
+    }
+
+    const changedAtColumn = getPreferredTimeColumn(columns);
+    const deletedColumn =
+      columns.find((name) => name.toLowerCase() === "deleted") ||
+      columns.find((name) => name.toLowerCase() === "is_deleted") ||
+      columns.find((name) => name.toLowerCase() === "deleted_flag") ||
+      null;
+    const actionColumn =
+      columns.find((name) => name.toLowerCase() === "action") ||
+      columns.find((name) => name.toLowerCase() === "change_type") ||
+      columns.find((name) => name.toLowerCase() === "event_type") ||
+      columns.find((name) => name.toLowerCase() === "operation") ||
+      columns.find((name) => name.toLowerCase() === "event") ||
+      null;
+
+    const filesColumnsResult = await client.query<FilesChangeLogColumnRow>(
+      `
+      SELECT column_name, data_type, udt_name, ordinal_position
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'files'
+      ORDER BY ordinal_position ASC
+      `,
+    );
+    const filesColumns = new Set(
+      filesColumnsResult.rows.map((row) => row.column_name.toLowerCase()),
+    );
+
+    const changedAtSql = changedAtColumn
+      ? `l.${quoteIdentifier(changedAtColumn)}::text AS changed_at`
+      : `NULL::text AS changed_at`;
+    const deletedSql = deletedColumn
+      ? `l.${quoteIdentifier(deletedColumn)} AS deleted_value`
+      : `NULL::text AS deleted_value`;
+    const actionSql = actionColumn
+      ? `l.${quoteIdentifier(actionColumn)}::text AS action_value`
+      : `NULL::text AS action_value`;
+    const descriptionSql = filesColumns.has("description")
+      ? `f.description::text AS description`
+      : `NULL::text AS description`;
+    const originalHashSql = filesColumns.has("original_hash")
+      ? `f.original_hash::text AS original_hash`
+      : `NULL::text AS original_hash`;
+    const currentHashSql = filesColumns.has("current_hash")
+      ? `f.current_hash::text AS current_hash`
+      : `NULL::text AS current_hash`;
+    const filesDeletedSql = filesColumns.has("deleted")
+      ? `f.deleted AS files_deleted`
+      : `NULL::boolean AS files_deleted`;
+    const orderSql = changedAtColumn
+      ? `ORDER BY l.${quoteIdentifier(changedAtColumn)} DESC NULLS LAST`
+      : `ORDER BY l.${quoteIdentifier(eftaColumn)} DESC`;
+
+    const rowsResult = await client.query<{
+      efta_id: string | null;
+      changed_at: string | null;
+      deleted_value: unknown;
+      action_value: string | null;
+      exists_in_files: boolean;
+      description: string | null;
+      original_hash: string | null;
+      current_hash: string | null;
+      files_deleted: boolean | null;
+    }>(
+      `
+      SELECT
+        l.${quoteIdentifier(eftaColumn)}::text AS efta_id,
+        ${changedAtSql},
+        ${deletedSql},
+        ${actionSql},
+        (f.efta_id IS NOT NULL) AS exists_in_files,
+        ${descriptionSql},
+        ${originalHashSql},
+        ${currentHashSql},
+        ${filesDeletedSql}
+      FROM public.files_change_log l
+      LEFT JOIN public.files f
+        ON f.efta_id = l.${quoteIdentifier(eftaColumn)}::text
+      WHERE l.${quoteIdentifier(eftaColumn)} IS NOT NULL
+        AND btrim(l.${quoteIdentifier(eftaColumn)}::text) <> ''
+      ${orderSql}
+      LIMIT $1
+      OFFSET $2
+      `,
+      [safeLimit, safeOffset],
+    );
+
+    function toDeletedFlag(value: unknown) {
+      if (typeof value === "boolean") {
+        return value;
+      }
+      if (typeof value === "number") {
+        if (value === 1) {
+          return true;
+        }
+        if (value === 0) {
+          return false;
+        }
+      }
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (["true", "t", "1", "yes", "y"].includes(normalized)) {
+          return true;
+        }
+        if (["false", "f", "0", "no", "n"].includes(normalized)) {
+          return false;
+        }
+      }
+      return null;
+    }
+
+    function resolveChangeKind(
+      deletedValue: unknown,
+      actionValue: string | null,
+      filesDeleted: boolean | null,
+    ) {
+      const deletedFlag = toDeletedFlag(deletedValue);
+      if (deletedFlag === true) {
+        return "deleted" as const;
+      }
+      if (deletedFlag === false) {
+        return "restored" as const;
+      }
+      const action = (actionValue || "").toLowerCase();
+      if (/(delete|removed|remove|hidden)/.test(action)) {
+        return "deleted" as const;
+      }
+      if (/(restore|restored|undelete|unhide)/.test(action)) {
+        return "restored" as const;
+      }
+      if (filesDeleted === true) {
+        return "deleted" as const;
+      }
+      if (filesDeleted === false) {
+        return "restored" as const;
+      }
+      return "deleted" as const;
+    }
+
+    return {
+      items: rowsResult.rows
+        .filter((row): row is typeof row & { efta_id: string } => Boolean(row.efta_id))
+        .map((row) => {
+          const original = row.original_hash?.trim() || null;
+          const current = row.current_hash?.trim() || null;
+          const hashMatches =
+            original && current ? original === current : row.exists_in_files ? null : null;
+          return {
+            efta_id: row.efta_id,
+            changed_at: row.changed_at,
+            change_kind: resolveChangeKind(
+              row.deleted_value,
+              row.action_value,
+              row.files_deleted,
+            ),
+            description: row.description?.trim() || null,
+            hash_matches_original: hashMatches,
+            exists_in_files: row.exists_in_files,
+          };
+        }),
     };
   });
 }
@@ -897,6 +1170,40 @@ export async function getDeletedDocDescriptions(eftaIds: string[]) {
       acc[row.efta_id] = row.document_description ?? null;
       return acc;
     }, {});
+  });
+}
+
+export async function getFileDescriptions(eftaIds: string[]) {
+  const normalized = eftaIds.map((id) => id.trim().toUpperCase()).filter(Boolean);
+  if (normalized.length === 0) {
+    return {} as Record<string, string | null>;
+  }
+
+  return withClient(async (client) => {
+    try {
+      const result = await client.query<FileDescriptionRow>(
+        `
+        SELECT efta_id, description::text AS description
+        FROM files
+        WHERE efta_id = ANY($1::text[])
+        `,
+        [normalized],
+      );
+
+      return result.rows.reduce<Record<string, string | null>>((acc, row) => {
+        acc[row.efta_id] = row.description?.trim() || null;
+        return acc;
+      }, {});
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "";
+      if (code === "42703") {
+        return {} as Record<string, string | null>;
+      }
+      throw error;
+    }
   });
 }
 

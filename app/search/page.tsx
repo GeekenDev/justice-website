@@ -1035,7 +1035,7 @@ export default function SearchPage() {
 
       <section className="hero">
         <p className="eyebrow">Search</p>
-        <h1>Advanced Search V2</h1>
+        <h1>DOJ - Epstein Files Search</h1>
         <p className="subtitle">
           Google-like syntax, hybrid ranking, and highlighting
         </p>
