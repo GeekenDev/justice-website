@@ -102,26 +102,32 @@ function getDayKey(value: string | null, timeZone: string) {
   return getDayKeyFromDate(parsed, timeZone);
 }
 
-function formatDayLabel(dayKey: string, timeZone: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+function formatDayLabel(dayKey: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
+  if (!match) {
     return "Unknown date";
   }
-  const parsed = new Date(`${dayKey}T00:00:00Z`);
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+  const dayOfMonth = Number(match[3]);
+  const parsed = new Date(
+    Date.UTC(year, monthNumber - 1, dayOfMonth, 12, 0, 0),
+  );
   if (Number.isNaN(parsed.valueOf())) {
     return dayKey;
   }
   const weekday = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
-    timeZone,
+    timeZone: "UTC",
   }).format(parsed);
   const monthRaw = new Intl.DateTimeFormat("en-US", {
     month: "short",
-    timeZone,
+    timeZone: "UTC",
   }).format(parsed);
   const month = monthRaw.endsWith(".") ? monthRaw : `${monthRaw}.`;
   const day = new Intl.DateTimeFormat("en-US", {
     day: "numeric",
-    timeZone,
+    timeZone: "UTC",
   }).format(parsed);
   return `${weekday}, ${month} ${day}`;
 }
@@ -243,7 +249,7 @@ export default function LogPageClient({
         const dayLabel =
           dayKey === "__unknown__"
             ? "Unknown date"
-            : formatDayLabel(dayKey, userTimeZone);
+            : formatDayLabel(dayKey);
         const lastGroup = acc[acc.length - 1];
         if (!lastGroup || lastGroup.dayKey !== dayKey) {
           acc.push({
@@ -313,6 +319,10 @@ export default function LogPageClient({
         .map((dayKey) => `day=${encodeURIComponent(dayKey)}`)
         .join("&"),
     [visibleDayKeys],
+  );
+  const visibleDayKeysRequestKey = useMemo(
+    () => `${userTimeZone}|${visibleDayKeysQuery}`,
+    [userTimeZone, visibleDayKeysQuery],
   );
 
   const fetchMore = useCallback(async () => {
@@ -461,10 +471,10 @@ export default function LogPageClient({
       lastDailySummaryQueryRef.current = null;
       return;
     }
-    if (lastDailySummaryQueryRef.current === visibleDayKeysQuery) {
+    if (lastDailySummaryQueryRef.current === visibleDayKeysRequestKey) {
       return;
     }
-    lastDailySummaryQueryRef.current = visibleDayKeysQuery;
+    lastDailySummaryQueryRef.current = visibleDayKeysRequestKey;
 
     let canceled = false;
     const abortController = new AbortController();
@@ -516,7 +526,7 @@ export default function LogPageClient({
       canceled = true;
       abortController.abort();
     };
-  }, [userTimeZone, visibleDayKeysQuery]);
+  }, [userTimeZone, visibleDayKeysQuery, visibleDayKeysRequestKey]);
 
   function onOpenPdfPreview(eftaId: string) {
     const normalized = eftaId.trim().toUpperCase();
