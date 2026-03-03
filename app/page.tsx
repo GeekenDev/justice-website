@@ -129,7 +129,7 @@ function buildChangesLink(row: FileRow) {
   if (!scanId) {
     return null;
   }
-  return `https://change-tracker.geeken.dev/?run=run-${encodeURIComponent(scanId)}`;
+  return `https://change-tracker.geeken.dev/?run=${encodeURIComponent(scanId)}`;
 }
 
 export default function HomePage() {
